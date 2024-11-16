@@ -57,23 +57,34 @@ end;
 ```
 
 ## 📚 Examples
+
 1. 📝 **Word Counter** - Parallel text file processing
 2. 🔢 **Square Numbers** - Basic number crunching
 3. 🎓 **Simple Demo** - Various usage patterns
 
 ## 🛠️ Installation
+
 1. Add the `src` directory to your project's search path
 2. Add `ThreadPool` to your uses clause
 3. Start using the `GlobalThreadPool` instance
 
 ## ⚙️ Requirements
+
 - 💻 Free Pascal 3.2.2 or later
+- 📦 Lazarus 3.6.0 or later
 - 🆓 No external dependencies
+
 
 ## 📚 Documentation
 
 - [API Documentation](docs/API-Docs.md)
 - [Technical Details](docs/TECHNICAL.md)
+
+## 🧪 Testing
+
+1. Go to `tests/` directory
+2. Open `TestRunner.lpi` in Lazarus IDE and compile
+3. Run `./TestRunner.exe -a -p --format=plain` to see the test results.
 
 ## 🧵 Thread Management
 
