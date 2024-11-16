@@ -1,9 +1,8 @@
-## 🎮 API Documentation
+## 📚 API Documentation
 
 ### Core Functions
 
-#### Queue Operations
-```pascal
+#### Queue Operations```pascal
 // Queue a simple procedure
 GlobalThreadPool.Queue(@MyProcedure);
 
