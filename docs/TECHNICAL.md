@@ -5,16 +5,22 @@
 
 ```mermaid
 graph TD
-    A[Application] --> B[ThreadPool]
-    B --> C[Task Queue]
-    C --> |pop| D1[Worker Thread 1]
-    C --> |pop| D2[Worker Thread 2]
-    C --> |pop| D3[Worker Thread n]
-    E[Work Items] --> |push| C
-    F1[Procedure] --> E
-    F2[Method] --> E
-    F3[Indexed Procedure] --> E
-    F4[Indexed Method] --> E
+    A1[Application] --> G[GlobalThreadPool]
+    A2[Application] --> C1[Custom ThreadPool]
+    G --> Q[Task Queue]
+    C1 --> Q
+    W1[Worker Thread 1] -->|pop| Q
+    W2[Worker Thread 2] -->|pop| Q
+    W3[Worker Thread n] -->|pop| Q
+    I[Work Items] -->|push| Q
+    P1[Simple Procedure] --> I
+    P2[Object Method] --> I
+    P3[Indexed Procedure] --> I
+    P4[Indexed Method] --> I
+    S[Synchronization] --- Q
+    S --- W1
+    S --- W2
+    S --- W3
 ```
 
 
