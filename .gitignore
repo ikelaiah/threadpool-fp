@@ -1,0 +1,55 @@
+# Free Pascal specific
+*.o
+*.ppu
+*.a
+*.compiled
+*.or
+*.rst
+*.s
+*.so
+*.dylib
+*.dll
+*.exe
+*.dbg
+link.res
+ppas.sh
+ppas.bat
+
+# Lazarus backup files
+backup/
+*.bak
+*.lps
+*.res
+lib/
+
+# Test binary outputs
+tests/TestRunner
+tests/TestRunner.exe
+tests/lib/
+
+# Debug files
+*.dbg
+*.dcu
+*.~*
+
+# IDE specific
+.vscode/
+.idea/
+
+# OS specific files
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+## Linux
+*~
+.directory
+.Trash-*
