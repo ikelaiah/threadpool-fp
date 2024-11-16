@@ -7,22 +7,28 @@
 graph TD
     A1[Application] --> G[GlobalThreadPool]
     A2[Application] --> C1[Custom ThreadPool]
-    G --> Q[Task Queue]
-    C1 --> Q
-    W1[Worker Thread 1] -->|pop| Q
-    W2[Worker Thread 2] -->|pop| Q
-    W3[Worker Thread n] -->|pop| Q
-    I[Work Items] -->|push| Q
-    P1[Simple Procedure] --> I
-    P2[Object Method] --> I
-    P3[Indexed Procedure] --> I
-    P4[Indexed Method] --> I
-    S[Synchronization] --- Q
-    S --- W1
-    S --- W2
-    S --- W3
+    
+    subgraph "Thread Pool"
+        G & C1 --> |owns| TL[TThreadList]
+        G & C1 --> |owns| WQ[TThreadList<br>Work Queue]
+        G & C1 --> |owns| CS[TCriticalSection<br>Work Item Count]
+        G & C1 --> |owns| EV[TEvent<br>Completion Signal]
+        
+        TL --> |contains| W1[Worker Thread 1]
+        TL --> |contains| W2[Worker Thread 2]
+        TL --> |contains| Wn[Worker Thread n]
+        
+        W1 & W2 & Wn -->|pop & execute| WQ
+    end
+    
+    subgraph "Work Items"
+        P1[TThreadProcedure] --> |wrapped as| WI[TWorkItem]
+        P2[TThreadMethod] --> |wrapped as| WI
+        P3[TThreadProcedureIndex] --> |wrapped as| WI
+        P4[TThreadMethodIndex] --> |wrapped as| WI
+        WI -->|queued in| WQ
+    end
 ```
-
 
 ## Core Components
 
@@ -30,26 +36,35 @@ graph TD
 
 Main thread pool manager that:
 
-- Maintains worker threads
-- Manages task queue
-- Handles task distribution
+- Maintains worker threads using `TThreadList`
+- Manages work item queue using `TThreadList`
+- Tracks work item count with `TCriticalSection`
+- Signals completion using `TEvent`
+- Provides thread-safe queueing methods
+- Handles shutdown and cleanup
 
 ### TWorkerThread
 
 Worker thread implementation that:
 
-- Continuously monitors for tasks
-- Executes assigned work items
-- Handles thread lifecycle
-
+- Inherits from `TThread`
+- Runs suspended until explicitly started
+- Continuously polls for work items
+- Executes work items when available
+- Sleeps when idle to prevent busy waiting
+- Terminates cleanly on pool shutdown
 
 ### TWorkItem
 
 Task wrapper that:
 
-- Encapsulates different types of work
-- Handles task execution
-- Manages task completion
+- Encapsulates four types of work:
+  - Simple procedures (`TThreadProcedure`)
+  - Object methods (`TThreadMethod`)
+  - Indexed procedures (`TThreadProcedureIndex`)
+  - Indexed methods (`TThreadMethodIndex`)
+- Manages task execution
+- Updates completion status
 
 
 ## Usage Patterns
@@ -80,9 +95,12 @@ See examples in the [examples](../examples) directory.
 
 ## Thread Safety
 
-- Task queue is protected by `TThreadList`
-- Work item count uses `TCriticalSection`
-- Task completion event for synchronization
+The implementation uses several synchronization mechanisms:
+
+- `TThreadList` for thread and work item collections
+- `TCriticalSection` for work item count
+- `TEvent` for completion signaling
+- Thread-safe queue operations
 
 ## Performance Considerations
 
@@ -120,8 +138,9 @@ end;
 - May not reflect dynamic system changes
 - Should be treated as approximate guidance only
 
-### Performance Tips
-1. **Task Size**: Ensure tasks are large enough to justify threading overhead
-2. **Batch Processing**: Group small tasks together
-3. **Resource Contention**: Minimize shared resource access
-4. **Testing**: Benchmark with different thread counts for your specific use case
+### Performance Considerations
+1. **Sleep Prevention**: Worker threads use `Sleep(1)` when idle
+2. **Task Granularity**: Consider overhead vs task size
+3. **Thread Count**: Default uses system processor count
+4. **Shutdown**: Clean termination of all threads
+5. **Resource Management**: Proper cleanup in destructor
