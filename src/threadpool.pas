@@ -1,3 +1,12 @@
+{*******************************************************}
+{                                                       }
+{       ThreadPool for Free Pascal                      }
+{                                                       }
+{       A lightweight thread pool implementation        }
+{       designed for simple parallel processing tasks   }
+{                                                       }
+{*******************************************************}
+
 unit ThreadPool;
 
 {$mode objfpc}{$H+}{$J-}
@@ -8,63 +17,73 @@ uses
   Classes, SysUtils, SyncObjs;
 
 type
-  TThreadProcedure = procedure;
-  TThreadMethod = procedure of object;
-  TThreadProcedureIndex = procedure(index: Integer);
-  TThreadMethodIndex = procedure(index: Integer) of object;
+  { Function pointer types for different kinds of work items }
+  TThreadProcedure = procedure;                              // Simple procedure
+  TThreadMethod = procedure of object;                       // Object method
+  TThreadProcedureIndex = procedure(index: Integer);         // Indexed procedure
+  TThreadMethodIndex = procedure(index: Integer) of object;  // Indexed method
 
-  { TWorkItem }
+  { TWorkItem - Encapsulates work to be executed by worker threads }
   TWorkItem = class
   private
-    FProcedure: TThreadProcedure;
-    FMethod: TThreadMethod;
-    FProcedureIndex: TThreadProcedureIndex;
-    FMethodIndex: TThreadMethodIndex;
-    FIndex: Integer;
-    FObject: TObject;
-    FItemType: (witProcedure, witMethod, witProcedureIndex, witMethodIndex);
-    FThreadPool: TObject;
+    FProcedure: TThreadProcedure;           // Simple procedure to execute
+    FMethod: TThreadMethod;                 // Object method to execute
+    FProcedureIndex: TThreadProcedureIndex; // Indexed procedure
+    FMethodIndex: TThreadMethodIndex;       // Indexed method
+    FIndex: Integer;                        // Index for indexed operations
+    FObject: TObject;                       // Associated object (if any)
+    FItemType: (witProcedure,               // Type of work item
+                witMethod,
+                witProcedureIndex,
+                witMethodIndex);
+    FThreadPool: TObject;                   // Owner thread pool
   public
     constructor Create(AThreadPool: TObject);
-    procedure Execute;
+    procedure Execute;                    // Executes the work item
   end;
 
-  { TWorkerThread }
+  { TWorkerThread - Thread that processes work items }
   TWorkerThread = class(TThread)
   private
-    FThreadPool: TObject; // Will be TThreadPool
+    FThreadPool: TObject;                 // Owner thread pool
   protected
-    procedure Execute; override;
+    procedure Execute; override;          // Main thread execution loop
   public
     constructor Create(AThreadPool: TObject);
   end;
 
-  { TThreadPool }
+  { TThreadPool - Main thread pool manager }
   TThreadPool = class
   private
-    FThreads: TThreadList;
-    FWorkItems: TThreadList;
-    FThreadCount: Integer;
-    FShutdown: Boolean;
-    FWorkItemLock: TCriticalSection;
-    FWorkItemCount: Integer;
-    FWorkItemEvent: TEvent;
-    procedure ClearThreads;
-    procedure ClearWorkItems;
+    FThreads: TThreadList;               // List of worker threads
+    FWorkItems: TThreadList;             // Queue of pending work items
+    FThreadCount: Integer;               // Number of worker threads
+    FShutdown: Boolean;                  // Shutdown flag
+    FWorkItemLock: TCriticalSection;     // Synchronizes work item count
+    FWorkItemCount: Integer;             // Number of pending work items
+    FWorkItemEvent: TEvent;              // Signals work item completion
+    procedure ClearThreads;              // Cleanup worker threads
+    procedure ClearWorkItems;            // Cleanup pending work items
   public
+    { Creates a thread pool with specified number of threads
+      If AThreadCount <= 0, uses TThread.ProcessorCount }
     constructor Create(AThreadCount: Integer = 0);
     destructor Destroy; override;
     
+    { Queue different types of work items }
     procedure Queue(AProcedure: TThreadProcedure); overload;
     procedure Queue(AMethod: TThreadMethod); overload;
     procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); overload;
     procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); overload;
+    
+    { Waits for all queued work items to complete }
     procedure WaitForAll;
     
     property ThreadCount: Integer read FThreadCount;
   end;
 
 var
+  { Global thread pool instance - automatically initialized }
   GlobalThreadPool: TThreadPool;
 
 implementation
@@ -74,9 +93,9 @@ implementation
 constructor TWorkItem.Create(AThreadPool: TObject);
 begin
   inherited Create;
-  FThreadPool := AThreadPool;
-  FObject := nil;
-  FIndex := 0;
+  FThreadPool := AThreadPool;  // Store reference to owner pool
+  FObject := nil;             // Initialize object reference
+  FIndex := 0;               // Initialize index
 end;
 
 procedure TWorkItem.Execute;
@@ -84,6 +103,7 @@ var
   Pool: TThreadPool;
 begin
   try
+    // Execute the appropriate work item based on its type
     case FItemType of
       witProcedure: if Assigned(FProcedure) then FProcedure;
       witMethod: if Assigned(FMethod) then FMethod;
@@ -91,10 +111,12 @@ begin
       witMethodIndex: if Assigned(FMethodIndex) then FMethodIndex(FIndex);
     end;
   finally
+    // Update work item count and signal completion if necessary
     Pool := TThreadPool(FThreadPool);
     Pool.FWorkItemLock.Enter;
     try
       Dec(Pool.FWorkItemCount);
+      // If this was the last work item, signal completion
       if Pool.FWorkItemCount = 0 then
         Pool.FWorkItemEvent.SetEvent;
     finally
@@ -107,9 +129,9 @@ end;
 
 constructor TWorkerThread.Create(AThreadPool: TObject);
 begin
-  inherited Create(True);
+  inherited Create(True);  // Create suspended
   FThreadPool := AThreadPool;
-  FreeOnTerminate := False;
+  FreeOnTerminate := False;  // Pool manages thread lifetime
 end;
 
 procedure TWorkerThread.Execute;
@@ -120,15 +142,17 @@ var
 begin
   Pool := TThreadPool(FThreadPool);
   
+  // Main worker thread loop
   while not Terminated do
   begin
     WorkItem := nil;
+    // Try to get work from the queue
     List := Pool.FWorkItems.LockList;
     try
       if List.Count > 0 then
       begin
-        WorkItem := TWorkItem(List[0]);
-        List.Delete(0);
+        WorkItem := TWorkItem(List[0]);  // Get first item
+        List.Delete(0);                  // Remove from queue
       end;
     finally
       Pool.FWorkItems.UnlockList;
@@ -137,13 +161,13 @@ begin
     if WorkItem <> nil then
     begin
       try
-        WorkItem.Execute;
+        WorkItem.Execute;  // Process the work item
       finally
-        WorkItem.Free;
+        WorkItem.Free;    // Clean up
       end;
     end
     else
-      Sleep(1); // Prevent busy waiting
+      Sleep(1);  // No work available, prevent busy waiting
   end;
 end;
 
@@ -155,11 +179,15 @@ var
 begin
   inherited Create;
   
+  // Initialize thread-safe collections
   FThreads := TThreadList.Create;
   FWorkItems := TThreadList.Create;
   FWorkItemLock := TCriticalSection.Create;
   FShutdown := False;
 
+  // Determine thread count
+  // Note: TThread.ProcessorCount is set at startup and may not reflect runtime changes
+  // See: https://www.freepascal.org/docs-html/rtl/classes/tthread.processorcount.html
   if AThreadCount <= 0 then
     FThreadCount := TThread.ProcessorCount
   else
@@ -181,16 +209,18 @@ begin
   end;
 
   FWorkItemCount := 0;
-  FWorkItemEvent := TEvent.Create(nil, True, True, ''); // Manual reset event
+  // Create manual reset event for synchronization
+  FWorkItemEvent := TEvent.Create(nil, True, True, '');
 end;
 
 destructor TThreadPool.Destroy;
 begin
-  WaitForAll; // Ensure all tasks complete before destroying
+  WaitForAll;  // Ensure all tasks complete before destroying
   FShutdown := True;
   ClearWorkItems;
   ClearThreads;
   
+  // Clean up synchronization objects
   FWorkItemLock.Free;
   FThreads.Free;
   FWorkItems.Free;
@@ -205,6 +235,7 @@ var
   List: TList;
   I: Integer;
 begin
+  // Signal all threads to terminate
   List := FThreads.LockList;
   try
     for I := 0 to List.Count - 1 do
@@ -216,7 +247,7 @@ begin
     FThreads.UnlockList;
   end;
 
-  // Wait for all threads to finish
+  // Wait for all threads to finish and clean up
   List := FThreads.LockList;
   try
     for I := 0 to List.Count - 1 do
@@ -236,6 +267,7 @@ var
   List: TList;
   I: Integer;
 begin
+  // Clean up any remaining work items
   List := FWorkItems.LockList;
   try
     for I := 0 to List.Count - 1 do
@@ -246,21 +278,25 @@ begin
   end;
 end;
 
+{ Queue overloads for different types of work items }
+
 procedure TThreadPool.Queue(AProcedure: TThreadProcedure);
 var
   WorkItem: TWorkItem;
 begin
-  if FShutdown then Exit;
+  if FShutdown then Exit;  // Don't queue if shutting down
   
+  // Update work item count
   FWorkItemLock.Enter;
   try
     Inc(FWorkItemCount);
     if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
+      FWorkItemEvent.ResetEvent;  // Reset completion event
   finally
     FWorkItemLock.Leave;
   end;
   
+  // Create and queue work item
   WorkItem := TWorkItem.Create(Self);
   WorkItem.FProcedure := AProcedure;
   WorkItem.FItemType := witProcedure;
@@ -338,13 +374,13 @@ end;
 
 procedure TThreadPool.WaitForAll;
 begin
-  FWorkItemEvent.WaitFor(INFINITE);
+  FWorkItemEvent.WaitFor(INFINITE);  // Wait for all work items to complete
 end;
 
 initialization
-  GlobalThreadPool := TThreadPool.Create;
+  GlobalThreadPool := TThreadPool.Create;  // Create global instance
 
 finalization
-  GlobalThreadPool.Free;
+  GlobalThreadPool.Free;  // Clean up global instance
 
 end.
