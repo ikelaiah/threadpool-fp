@@ -8,11 +8,13 @@ uses
   Classes, SysUtils, fpcunit, testregistry, ThreadPool, syncobjs, DateUtils, Math;
 
 type
-    { TTestObject }
-    TTestObject = class
-    private
-      FCounter: Integer;
-      FCS: TCriticalSection;
+  TTestException = class(Exception);
+
+  { TTestObject }
+  TTestObject = class
+  private
+    FCounter: Integer;
+    FCS: TCriticalSection;
     public
       constructor Create(ACS: TCriticalSection);
       procedure IncrementCounter;
@@ -51,6 +53,9 @@ type
     procedure TestObjectLifetime;
     procedure TestExceptionHandling;
     procedure TestThreadReuse;
+    procedure TestExceptionMessage;
+    procedure TestMultipleExceptions;
+    procedure TestExceptionAfterClear;
   end;
 
 var
@@ -387,13 +392,18 @@ begin
   AssertEquals('Counter should be incremented once', 1, FCounter);
 end;
 
-type
-  TTestException = class(Exception);
+
   
 procedure RaiseTestException;
 begin
   Sleep(100); // Give the worker thread time to start
-  raise TTestException.Create('Test exception');
+  raise TTestException.Create('Test exception message');
+end;
+
+procedure RaiseAnotherException;
+begin
+  Sleep(50);
+  raise TTestException.Create('Another exception message');
 end;
 
 procedure TThreadPoolTests.TestExceptionHandling;
@@ -457,6 +467,61 @@ begin
   
   FThreadPool.WaitForAll;
   AssertEquals('All tasks should be processed', BatchSize, FCounter);
+end;
+
+procedure TThreadPoolTests.TestExceptionMessage;
+begin
+  FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
+  FThreadPool.WaitForAll;
+  
+  // Check that the error was captured
+  AssertTrue('ThreadPool should have captured an error message',
+    FThreadPool.LastError <> '');
+    
+  // Verify the error message contains our test message
+  AssertTrue('Error should contain our test message',
+    Pos('Test exception message', FThreadPool.LastError) > 0);
+    
+  // Verify the error includes the thread ID
+  AssertTrue('Error should contain thread ID',
+    Pos('[Thread', FThreadPool.LastError) > 0);
+end;
+
+procedure TThreadPoolTests.TestMultipleExceptions;
+begin
+  // Queue multiple tasks that will raise exceptions
+  FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
+  FThreadPool.Queue(TThreadProcedure(@RaiseAnotherException));
+  FThreadPool.WaitForAll;
+  
+  // At least one exception should be captured
+  AssertTrue('ThreadPool should have captured an error',
+    FThreadPool.LastError <> '');
+    
+  // The pool continues working after exceptions
+  FCounter := 0;
+  FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
+  FThreadPool.WaitForAll;
+  AssertEquals('Pool should still process tasks after exceptions', 1, FCounter);
+end;
+
+procedure TThreadPoolTests.TestExceptionAfterClear;
+begin
+  // First exception
+  FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
+  FThreadPool.WaitForAll;
+  
+  // Clear error state (you'll need to add this method to TThreadPool)
+  FThreadPool.ClearLastError;
+  
+  // Verify cleared
+  AssertEquals('Error should be cleared', '', FThreadPool.LastError);
+  
+  // New task works
+  FCounter := 0;
+  FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
+  FThreadPool.WaitForAll;
+  AssertEquals('Pool should work after clearing error', 1, FCounter);
 end;
 
 initialization

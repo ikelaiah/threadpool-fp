@@ -25,11 +25,11 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 
 ## ✨ Features
 
-- 🎯 Simple API for parallel processing
-- 🔄 Support for procedures and methods
-- 🔒 Thread-safe operations
-- 🌍 Global thread pool instance (fixed thread count based on `TThread.ProcessorCount`)
-- 📑 Indexed task support
+- 🔄 Automatic thread count management
+- 🎯 Multiple task types support (procedures, methods, indexed variants)
+- 🔒 Thread-safe operation
+- ⚠️ Exception handling and error reporting
+- 🌍 Global pool instance for convenience
 
 > [!NOTE]
 > The thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for important details and limitations.
@@ -53,6 +53,55 @@ begin
     
   // Wait for all tasks to complete
   GlobalThreadPool.WaitForAll;
+end;
+```
+
+## ⚠️ Error Handling
+
+
+```pascal
+uses
+  ThreadPool;
+
+var
+  Pool: TThreadPool;
+
+begin
+  Pool := TThreadPool.Create(4); // Create with 4 threads
+  try
+    Pool.Queue(@MyProcedure);
+    Pool.WaitForAll;
+    // Check for errors
+    if Pool.LastError <> '' then
+      WriteLn('An error occurred: ', Pool.LastError);
+  finally
+    Pool.Free;
+  end;
+end;
+```
+
+### 💡 Tips
+
+> [!NOTE]
+> - 🛡️ Exceptions in worker threads are caught and stored
+> - 🔍 Error messages include thread IDs for debugging
+> - ⚡ The pool continues operating after exceptions
+> - 🔄 Error state can be cleared for reuse
+
+
+### 🛠️ Custom Thread Pool
+
+```pascal
+var
+  CustomPool: TThreadPool;
+begin
+  CustomPool := TThreadPool.Create(4);  // Minimum allowed threads
+  try
+    CustomPool.Queue(@MyProcedure);
+    CustomPool.WaitForAll;
+  finally
+    CustomPool.Free;
+  end;
 end;
 ```
 
@@ -90,34 +139,12 @@ end;
 
 ### Default Behavior
 The `GlobalThreadPool` creates threads with these safety limits:
-- Minimum: 4 threads (ensures basic parallelization)
-- Maximum: 2× ProcessorCount (prevents thread overload)
-- Default: ProcessorCount when thread count ≤ 0
+- ⬇️ Values below 4 are increased to 4
+- ⬆️ Values above 2× ProcessorCount are reduced
+- 🎯 Invalid values (≤ 0) default to ProcessorCount
 
 > [!IMPORTANT]
-> Thread count is automatically adjusted to safe limits:
-> - Values below 4 are increased to 4
-> - Values above 2× ProcessorCount are reduced
-> - Invalid values (≤ 0) default to ProcessorCount
-
-### Custom Thread Pool
-```pascal
-var
-  CustomPool: TThreadPool;
-
-begin
-  // Create pool with specific thread count
-  CustomPool := TThreadPool.Create(4); // Minimum allowed threads
-  // Or let it auto-adjust
-  CustomPool := TThreadPool.Create(1000); // Will be limited to 2× ProcessorCount
-  try
-    CustomPool.Queue(@MyProcedure);
-    CustomPool.WaitForAll;
-  finally
-    CustomPool.Free;
-  end;
-end;
-```
+> Thread count is automatically adjusted to safe limits.
 
 > [!TIP]
 > The thread pool automatically manages safe thread counts:

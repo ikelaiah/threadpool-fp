@@ -46,10 +46,12 @@ type
   TWorkerThread = class(TThread)
   private
     FThreadPool: TObject;                 // Owner thread pool
+    FLastError: string;                   // Add this to store last error
   protected
     procedure Execute; override;          // Main thread execution loop
   public
     constructor Create(AThreadPool: TObject);
+    property LastError: string read FLastError;  // Allow reading the error
   end;
 
   { TThreadPool - Main thread pool manager }
@@ -62,6 +64,8 @@ type
     FWorkItemLock: TCriticalSection;     // Synchronizes work item count
     FWorkItemCount: Integer;             // Number of pending work items
     FWorkItemEvent: TEvent;              // Signals work item completion
+    FLastError: string;                  // Add this to store pool-level error
+    FErrorLock: TCriticalSection;        // Add this for thread-safe error handling
     procedure ClearThreads;              // Cleanup worker threads
     procedure ClearWorkItems;            // Cleanup pending work items
   public
@@ -80,6 +84,8 @@ type
     procedure WaitForAll;
     
     property ThreadCount: Integer read FThreadCount;
+    property LastError: string read FLastError;  // Allow reading the error
+    procedure ClearLastError;
   end;
 
 var
@@ -161,13 +167,24 @@ begin
     if WorkItem <> nil then
     begin
       try
-        WorkItem.Execute;  // Process the work item
-      finally
-        WorkItem.Free;    // Clean up
+        WorkItem.Execute;
+      except
+        on E: Exception do
+        begin
+          // Store the error message with thread ID
+          Pool.FErrorLock.Enter;
+          try
+            Pool.FLastError := Format('[Thread %d] %s', 
+              [ThreadID, E.Message]);
+          finally
+            Pool.FErrorLock.Leave;
+          end;
+        end;
       end;
+      WorkItem.Free;
     end
     else
-      Sleep(1);  // No work available, prevent busy waiting
+      Sleep(1);
   end;
 end;
 
@@ -198,6 +215,8 @@ begin
   FWorkItems := TThreadList.Create;
   FWorkItemLock := TCriticalSection.Create;
   FShutdown := False;
+  FErrorLock := TCriticalSection.Create;
+  FLastError := '';
 
   // Create worker threads
   for I := 1 to FThreadCount do
@@ -231,6 +250,7 @@ begin
   FThreads.Free;
   FWorkItems.Free;
   FWorkItemEvent.Free;
+  FErrorLock.Free;
   
   inherited Destroy;
 end;
@@ -381,6 +401,16 @@ end;
 procedure TThreadPool.WaitForAll;
 begin
   FWorkItemEvent.WaitFor(INFINITE);  // Wait for all work items to complete
+end;
+
+procedure TThreadPool.ClearLastError;
+begin
+  FErrorLock.Enter;
+  try
+    FLastError := '';
+  finally
+    FErrorLock.Leave;
+  end;
 end;
 
 initialization

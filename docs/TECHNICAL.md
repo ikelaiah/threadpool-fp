@@ -174,3 +174,47 @@ end;
 3. **Thread Count**: Default uses system processor count
 4. **Shutdown**: Clean termination of all threads
 5. **Resource Management**: Proper cleanup in destructor
+
+## Exception Handling
+
+The thread pool implements a robust exception handling system:
+
+### Error Capture
+- Worker threads catch all exceptions
+- Error messages are stored thread-safely
+- Thread ID is included in error messages
+- Last error is accessible via `LastError` property
+
+### Implementation Details
+
+```pascal
+// Worker thread exception handling
+try
+  WorkItem.Execute;
+except
+  on E: Exception do
+    // Thread-safe error capture
+    ThreadPool.StoreError(Format('[Thread %d] %s', 
+      [ThreadID, E.Message]));
+end;
+```
+
+### Error Management
+
+- Thread-safe error storage using critical sections
+- Error state can be cleared via `ClearLastError`
+- Pool continues operating after exceptions
+- Each new error overwrites the previous one
+
+### Best Practices
+
+1. Check `LastError` after `WaitForAll`
+2. Clear errors before reusing the pool
+3. Consider logging persistent errors
+4. Use thread IDs to track error sources
+
+### Limitations
+- Only stores most recent error
+- No built-in error event handling
+- No exception propagation to main thread
+- No error queue implementation
