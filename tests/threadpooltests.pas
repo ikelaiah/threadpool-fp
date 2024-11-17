@@ -5,7 +5,7 @@ unit ThreadPoolTests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, ThreadPool, syncobjs, Math;
+  Classes, SysUtils, fpcunit, testregistry, ThreadPool, syncobjs, DateUtils, Math;
 
 type
     { TTestObject }
@@ -392,22 +392,34 @@ type
   
 procedure RaiseTestException;
 begin
+  Sleep(100); // Give the worker thread time to start
   raise TTestException.Create('Test exception');
 end;
 
 procedure TThreadPoolTests.TestExceptionHandling;
 var
   ExceptionRaised: Boolean;
+  StartTime: TDateTime;
 begin
   ExceptionRaised := False;
+  StartTime := Now;
+  
   try
     FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
     FThreadPool.WaitForAll;
+    
+    // Verify that we actually waited for the task
+    AssertTrue('Test should take at least 100ms',
+      MilliSecondsBetween(Now, StartTime) >= 90);
+      
     // If we got here, the exception was handled by the worker thread
     AssertTrue('Exception should be handled by worker thread', True);
   except
     on E: Exception do
+    begin
       ExceptionRaised := True;
+      Fail('Exception should not propagate: ' + E.Message);
+    end;
   end;
   
   AssertFalse('Exception should not propagate to main thread', ExceptionRaised);
