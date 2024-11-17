@@ -14,7 +14,7 @@ unit ThreadPool;
 interface
 
 uses
-  Classes, SysUtils, SyncObjs;
+  Classes, SysUtils, SyncObjs, Math;
 
 type
   { Function pointer types for different kinds of work items }
@@ -179,19 +179,25 @@ var
 begin
   inherited Create;
   
+  // Ensure thread count is reasonable:
+  // - If <= 0: use ProcessorCount
+  // - If too high: limit to 2x ProcessorCount
+  // - Ensure minimum of 4 threads
+  if AThreadCount <= 0 then
+    AThreadCount := TThread.ProcessorCount
+  else
+    AThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
+    
+  AThreadCount := Max(AThreadCount, 4);  // Ensure minimum of 4 threads
+  
+  // Initialize the thread pool
+  FThreadCount := AThreadCount;
+  
   // Initialize thread-safe collections
   FThreads := TThreadList.Create;
   FWorkItems := TThreadList.Create;
   FWorkItemLock := TCriticalSection.Create;
   FShutdown := False;
-
-  // Determine thread count
-  // Note: TThread.ProcessorCount is set at startup and may not reflect runtime changes
-  // See: https://www.freepascal.org/docs-html/rtl/classes/tthread.processorcount.html
-  if AThreadCount <= 0 then
-    FThreadCount := TThread.ProcessorCount
-  else
-    FThreadCount := AThreadCount;
 
   // Create worker threads
   for I := 1 to FThreadCount do

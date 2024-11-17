@@ -111,6 +111,25 @@ The implementation uses several synchronization mechanisms:
 
 ## Thread Management
 
+### Thread Count Safety
+
+The thread pool implements several safety measures for thread count:
+
+1. **Minimum Threads**
+   - Enforces minimum of 4 threads
+   - Ensures basic parallel processing capability
+   - Prevents ineffective thread pools
+
+2. **Maximum Threads**
+   - Limits to 2× ProcessorCount
+   - Prevents system resource exhaustion
+   - Scales reasonably with available processors
+
+3. **Default Behavior**
+   - Uses ProcessorCount when count ≤ 0
+   - Automatically adjusts out-of-range values
+   - Maintains safe operating parameters
+
 ### Thread Count Initialization
 
 The default thread count uses `TThread.ProcessorCount`, but this has important limitations:

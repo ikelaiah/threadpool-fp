@@ -89,22 +89,27 @@ end;
 ## 🧵 Thread Management
 
 ### Default Behavior
-The `GlobalThreadPool` creates threads based on `TThread.ProcessorCount`. However, please note:
+The `GlobalThreadPool` creates threads with these safety limits:
+- Minimum: 4 threads (ensures basic parallelization)
+- Maximum: 2× ProcessorCount (prevents thread overload)
+- Default: ProcessorCount when thread count ≤ 0
 
 > [!IMPORTANT]
-> `TThread.ProcessorCount` has some limitations:
-> - May return cores OR CPUs (deliberately unspecified)
-> - Value is set at program start and may not reflect runtime changes
-> - Should only be used as a rough indication of parallel execution capacity
-> - No guarantee of actual available processing units
+> Thread count is automatically adjusted to safe limits:
+> - Values below 4 are increased to 4
+> - Values above 2× ProcessorCount are reduced
+> - Invalid values (≤ 0) default to ProcessorCount
 
 ### Custom Thread Pool
 ```pascal
 var
   CustomPool: TThreadPool;
+
 begin
   // Create pool with specific thread count
-  CustomPool := TThreadPool.Create(4);  // Force 4 threads
+  CustomPool := TThreadPool.Create(4); // Minimum allowed threads
+  // Or let it auto-adjust
+  CustomPool := TThreadPool.Create(1000); // Will be limited to 2× ProcessorCount
   try
     CustomPool.Queue(@MyProcedure);
     CustomPool.WaitForAll;
@@ -115,11 +120,11 @@ end;
 ```
 
 > [!TIP]
-> Consider your specific use case when deciding thread count:
-> - Too many threads can waste resources
-> - Too few threads may not fully utilize the system
-> - Monitor and test with your target systems
-> - Consider making thread count configurable in production
+> The thread pool automatically manages safe thread counts:
+> - Prevents too few threads (< 4) that could limit parallelism
+> - Prevents too many threads that could overwhelm the system
+> - Maintains reasonable scaling with available processors
+> - No need to manually calculate safe limits
 
 
 ## 👏 Acknowledgments
