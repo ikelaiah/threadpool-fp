@@ -137,18 +137,29 @@ The default thread count uses `TThread.ProcessorCount`, but this has important l
 ```pascal
 constructor TThreadPool.Create(AThreadCount: Integer = 0);
 begin
-  inherited Create;
-  
-  // Note: ProcessorCount limitations:
-  // - May be cores or CPUs (unspecified)
-  // - Set at program start
-  // - May not reflect runtime changes
+  // Safety limits:
+  // - Minimum: 4 threads
+  // - Maximum: 2× ProcessorCount
+  // - Default: ProcessorCount (when ≤ 0)
   if AThreadCount <= 0 then
-    AThreadCount := TThread.ProcessorCount;
-    
-  FThreadCount := AThreadCount;
+    AThreadCount := TThread.ProcessorCount
+  else
+    AThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
+  AThreadCount := Max(AThreadCount, 4);
+
+  // -- other snippet
+
 end;
 ```
+
+### Implementation Notes
+
+- Thread creation is managed in constructor
+- All threads start suspended
+- Explicit start after initialization
+- Clean shutdown in destructor
+- Thread-safe collections for management
+
 
 ### System Processor Count Detection Limitations
 
