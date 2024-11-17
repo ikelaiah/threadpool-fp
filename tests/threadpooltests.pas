@@ -474,6 +474,9 @@ begin
   FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
   FThreadPool.WaitForAll;
   
+  // Add a small delay to ensure error is captured
+  Sleep(50);
+  
   // Check that the error was captured
   AssertTrue('ThreadPool should have captured an error message',
     FThreadPool.LastError <> '');

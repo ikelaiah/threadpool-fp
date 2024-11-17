@@ -66,6 +66,7 @@ type
     FWorkItemEvent: TEvent;              // Signals work item completion
     FLastError: string;                  // Add this to store pool-level error
     FErrorLock: TCriticalSection;        // Add this for thread-safe error handling
+    FErrorEvent: TEvent;  // Add this to signal error capture
     procedure ClearThreads;              // Cleanup worker threads
     procedure ClearWorkItems;            // Cleanup pending work items
   public
@@ -168,15 +169,15 @@ begin
     begin
       try
         WorkItem.Execute;
-      except
+       except
         on E: Exception do
         begin
-          // Store the error message with thread ID
           Pool.FErrorLock.Enter;
-          try
-            Pool.FLastError := Format('[Thread %d] %s', 
-              [ThreadID, E.Message]);
-          finally
+      try
+        Pool.FLastError := Format('[Thread %d] %s', 
+          [ThreadID, E.Message]);
+        Pool.FErrorEvent.SetEvent;  // Signal that error was captured
+      finally
             Pool.FErrorLock.Leave;
           end;
         end;
@@ -217,6 +218,7 @@ begin
   FShutdown := False;
   FErrorLock := TCriticalSection.Create;
   FLastError := '';
+  FErrorEvent := TEvent.Create(nil, True, False, '');  // Manual reset event
 
   // Create worker threads
   for I := 1 to FThreadCount do
@@ -250,6 +252,7 @@ begin
   FThreads.Free;
   FWorkItems.Free;
   FWorkItemEvent.Free;
+  FErrorEvent.Free;
   FErrorLock.Free;
   
   inherited Destroy;
@@ -401,6 +404,9 @@ end;
 procedure TThreadPool.WaitForAll;
 begin
   FWorkItemEvent.WaitFor(INFINITE);  // Wait for all work items to complete
+  // If there was an error, ensure it's fully captured
+  if FErrorEvent.WaitFor(100) = wrSignaled then
+    FErrorEvent.ResetEvent;
 end;
 
 procedure TThreadPool.ClearLastError;
