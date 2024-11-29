@@ -141,7 +141,7 @@ end;
 The `GlobalThreadPool` creates threads with these safety limits:
 - ⬇️ Values below 4 are increased to 4
 - ⬆️ Values above 2× ProcessorCount are reduced
-- 🎯 Invalid values (≤ 0) default to ProcessorCount
+- 🎯 Invalid values (≤ 0) default to [TThread.ProcessorCount](https://www.freepascal.org/docs-html/rtl/classes/tthread.processorcount.html)
 
 > [!IMPORTANT]
 > Thread count is automatically adjusted to safe limits.
