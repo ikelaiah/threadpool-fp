@@ -165,5 +165,5 @@ MIT License
 
 ---
 
-💡 **More Tip**: Check out the examples directory for more advanced usage patterns!
+💡 **More Tip**: Check out the examples directory for more usage patterns!
 
