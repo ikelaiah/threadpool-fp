@@ -172,7 +172,9 @@ type
     function Queue(AMethod: TThreadMethodIndex; AIndex: Integer): TWorkItem; overload;
     // Queue a simple procedure with a priority
     function QueueWithPriority(AProcedure: TThreadProcedure; 
-      APriority: TTaskPriority = tpNormal): TWorkItem;
+      APriority: TTaskPriority = tpNormal): TWorkItem; overload;
+    function QueueWithPriority(AMethod: TThreadMethod; 
+      APriority: TTaskPriority = tpNormal): TWorkItem; overload;
     // Add a dependency to a work item
     procedure AddDependency(AWorkItem, ADependsOn: TWorkItem);
     
@@ -296,6 +298,7 @@ begin
       WriteLn('WorkItem.Execute: Failed with error: ', E.Message);
       FStatus := tsFailed;
       FErrorMessage := E.Message;
+      raise;
     end;
   end;
   
@@ -354,22 +357,28 @@ begin
     begin
       WriteLn('Thread ', ThreadID, ' executing work item');
       try
-        WorkItem.Execute;
-        WriteLn('Thread ', ThreadID, ' completed work item');
-      except
-        on E: Exception do
-        begin
-          WriteLn('Thread ', ThreadID, ' error: ', E.Message);
-          Pool.FErrorLock.Enter;
-          try
-            Pool.FLastError := Format('[Thread %d] %s', [ThreadID, E.Message]);
-            Pool.FErrorEvent.SetEvent;
-          finally
-            Pool.FErrorLock.Leave;
+        try
+          WorkItem.Execute;
+          WriteLn('Thread ', ThreadID, ' completed work item');
+        except
+          on E: Exception do
+          begin
+            WriteLn('Thread ', ThreadID, ' error: ', E.Message);
+            WorkItem.FErrorMessage := Format('[Thread %d] %s', [ThreadID, E.Message]);
+            
+            Pool.FErrorLock.Enter;
+            try
+              Pool.FLastError := WorkItem.FErrorMessage;
+              Pool.FErrorEvent.SetEvent;
+            finally
+              Pool.FErrorLock.Leave;
+            end;
           end;
         end;
+      finally
+        WorkItem.FCompletedEvent.SetEvent;
+        WorkItem.Free;
       end;
-      WorkItem.Free;
     end
     else
       Sleep(1);
@@ -748,6 +757,31 @@ begin
   Result := WorkItem;
 end;
 
+function TThreadPool.QueueWithPriority(AMethod: TThreadMethod; 
+  APriority: TTaskPriority = tpNormal): TWorkItem;
+var
+  WorkItem: TWorkItem;
+begin
+  if FShutdown then Exit(nil);
+  
+  FWorkItemLock.Enter;
+  try
+    Inc(FWorkItemCount);
+    if FWorkItemCount > 0 then
+      FWorkItemEvent.ResetEvent;
+  finally
+    FWorkItemLock.Leave;
+  end;
+  
+  WorkItem := TWorkItem.Create(Self);
+  WorkItem.FMethod := AMethod;
+  WorkItem.FItemType := witMethod;
+  WorkItem.FPriority := APriority;
+  
+  FWorkQueue.Enqueue(WorkItem);
+  Result := WorkItem;
+end;
+
 procedure TThreadPool.WaitForAll;
 const
   TIMEOUT_MS = 30000; // 30 seconds timeout
@@ -764,12 +798,20 @@ begin
     Exit;
   end;
   
+  // Wait for work items to complete
   if FWorkItemEvent.WaitFor(TIMEOUT_MS) <> wrSignaled then
   begin
     WriteLn('ThreadPool.WaitForAll: Timeout after ', TIMEOUT_MS, 'ms');
     WriteLn('  Remaining work items: ', FWorkItemCount);
     WriteLn('  Queue empty: ', FWorkQueue.IsEmpty);
     raise Exception.Create('Thread pool wait timeout after ' + IntToStr(TIMEOUT_MS) + 'ms');
+  end;
+  
+  // Check for any errors that occurred during execution
+  if FErrorEvent.WaitFor(0) = wrSignaled then
+  begin
+    WriteLn('ThreadPool.WaitForAll: Error event is set');
+    WriteLn('  Last error: ', FLastError);
   end;
   
   WriteLn('ThreadPool.WaitForAll: Tasks completed');

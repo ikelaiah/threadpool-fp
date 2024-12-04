@@ -13,9 +13,9 @@ type
 
 procedure TMyTestRunner.RunTest(ATest: TTest);
 begin
-  WriteLn('Running test: ', ATest.TestName);
+  WriteLn('---Running test: ', ATest.TestName);
   RunTest(ATest);
-  WriteLn('Test completed: ', ATest.TestName);
+  WriteLn('---Test completed: ', ATest.TestName);
 end;
 
 var
