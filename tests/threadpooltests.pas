@@ -5,7 +5,7 @@ unit ThreadPoolTests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, ThreadPool, syncobjs, DateUtils, Math;
+  Classes, SysUtils, fpcunit, testregistry, ThreadPool, syncobjs, DateUtils;
 
 type
   TTestException = class(Exception);
@@ -36,26 +36,26 @@ type
     procedure SetUp; override;
     procedure TearDown; override;
   published
-    procedure TestCreateDestroy;
-    procedure TestSimpleProcedure;
-    procedure TestMethodProcedure;
-    procedure TestIndexedProcedure;
-    procedure TestIndexedMethod;
-    procedure TestMultipleThreads;
-    procedure TestStressTest;
-    procedure TestZeroThreadCount;
-    procedure TestNegativeThreadCount;
-    procedure TestMaxThreadCount;
-    procedure TestConcurrentQueueAccess;
-    procedure TestEmptyQueue;
-    procedure TestQueueAfterWait;
-    procedure TestMultipleWaits;
-    procedure TestObjectLifetime;
-    procedure TestExceptionHandling;
-    procedure TestThreadReuse;
-    procedure TestExceptionMessage;
-    procedure TestMultipleExceptions;
-    procedure TestExceptionAfterClear;
+    procedure Test1_CreateDestroy;
+    procedure Test2_SimpleProcedure;
+    procedure Test3_MethodProcedure;
+    procedure Test4_IndexedProcedure;
+    procedure Test5_IndexedMethod;
+    procedure Test6_MultipleThreads;
+    procedure Test7_StressTest;
+    procedure Test8_ZeroThreadCount;
+    procedure Test9_NegativeThreadCount;
+    procedure Test10_MaxThreadCount;
+    procedure Test11_ConcurrentQueueAccess;
+    procedure Test12_EmptyQueue;
+    procedure Test13_QueueAfterWait;
+    procedure Test14_MultipleWaits;
+    procedure Test15_ObjectLifetime;
+    procedure Test16_ExceptionHandling;
+    procedure Test17_ThreadReuse;
+    procedure Test18_ExceptionMessage;
+    procedure Test19_MultipleExceptions;
+    procedure Test20_ExceptionAfterClear;
   end;
 
 var
@@ -149,7 +149,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestCreateDestroy;
+procedure TThreadPoolTests.Test1_CreateDestroy;
 var
   Pool: TThreadPool;
 const
@@ -175,7 +175,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestSimpleProcedure;
+procedure TThreadPoolTests.Test2_SimpleProcedure;
 begin
   FCounter := 0;
   FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
@@ -183,7 +183,7 @@ begin
   AssertEquals('Counter should be incremented once', 1, FCounter);
 end;
 
-procedure TThreadPoolTests.TestMethodProcedure;
+procedure TThreadPoolTests.Test3_MethodProcedure;
 begin
   FTestObject.Counter := 0;
   FThreadPool.Queue(TThreadMethod(@FTestObject.IncrementCounter));
@@ -191,7 +191,7 @@ begin
   AssertEquals('Counter should be incremented once', 1, FTestObject.Counter);
 end;
 
-procedure TThreadPoolTests.TestIndexedProcedure;
+procedure TThreadPoolTests.Test4_IndexedProcedure;
 begin
   FCounter := 0;
   FThreadPool.Queue(TThreadProcedureIndex(@GlobalIncrementCounterWithIndex), 5);
@@ -199,7 +199,7 @@ begin
   AssertEquals('Counter should be incremented by index', 5, FCounter);
 end;
 
-procedure TThreadPoolTests.TestIndexedMethod;
+procedure TThreadPoolTests.Test5_IndexedMethod;
 begin
   FTestObject.Counter := 0;
   FThreadPool.Queue(TThreadMethodIndex(@FTestObject.IncrementCounterWithIndex), 5);
@@ -207,7 +207,7 @@ begin
   AssertEquals('Counter should be incremented by index', 5, FTestObject.Counter);
 end;
 
-procedure TThreadPoolTests.TestMultipleThreads;
+procedure TThreadPoolTests.Test6_MultipleThreads;
 var
   I: Integer;
 const
@@ -221,7 +221,7 @@ begin
   AssertEquals('Counter should match task count', TaskCount, FCounter);
 end;
 
-procedure TThreadPoolTests.TestStressTest;
+procedure TThreadPoolTests.Test7_StressTest;
 var
   I: Integer;
 const
@@ -244,7 +244,7 @@ begin
   AssertEquals('Counter should match expected total', TaskCount, FCounter + FTestObject.Counter);
 end;
 
-procedure TThreadPoolTests.TestZeroThreadCount;
+procedure TThreadPoolTests.Test8_ZeroThreadCount;
 var
   Pool: TThreadPool;
 begin
@@ -259,7 +259,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestNegativeThreadCount;
+procedure TThreadPoolTests.Test9_NegativeThreadCount;
 var
   Pool: TThreadPool;
 begin
@@ -274,7 +274,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestMaxThreadCount;
+procedure TThreadPoolTests.Test10_MaxThreadCount;
 var
   Pool: TThreadPool;
 const
@@ -330,7 +330,7 @@ begin
     FPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
 end;
 
-procedure TThreadPoolTests.TestConcurrentQueueAccess;
+procedure TThreadPoolTests.Test11_ConcurrentQueueAccess;
 var
   Threads: array[1..5] of TTestQueueThread;
   StartEvent: TEvent;
@@ -367,13 +367,13 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestEmptyQueue;
+procedure TThreadPoolTests.Test12_EmptyQueue;
 begin
   FThreadPool.WaitForAll;  // Should not hang or raise exceptions
   AssertEquals('Counter should remain zero', 0, FCounter);
 end;
 
-procedure TThreadPoolTests.TestQueueAfterWait;
+procedure TThreadPoolTests.Test13_QueueAfterWait;
 begin
   FCounter := 0;
   FThreadPool.WaitForAll;
@@ -382,7 +382,7 @@ begin
   AssertEquals('Counter should be incremented', 1, FCounter);
 end;
 
-procedure TThreadPoolTests.TestMultipleWaits;
+procedure TThreadPoolTests.Test14_MultipleWaits;
 begin
   FCounter := 0;
   FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
@@ -406,7 +406,7 @@ begin
   raise TTestException.Create('Another exception message');
 end;
 
-procedure TThreadPoolTests.TestExceptionHandling;
+procedure TThreadPoolTests.Test16_ExceptionHandling;
 var
   ExceptionRaised: Boolean;
   StartTime: TDateTime;
@@ -435,7 +435,7 @@ begin
   AssertFalse('Exception should not propagate to main thread', ExceptionRaised);
 end;
 
-procedure TThreadPoolTests.TestObjectLifetime;
+procedure TThreadPoolTests.Test15_ObjectLifetime;
 var
   Obj: TTestObject;
 begin
@@ -450,7 +450,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestThreadReuse;
+procedure TThreadPoolTests.Test17_ThreadReuse;
 var
   i: Integer;
 const
@@ -469,7 +469,7 @@ begin
   AssertEquals('All tasks should be processed', BatchSize, FCounter);
 end;
 
-procedure TThreadPoolTests.TestExceptionMessage;
+procedure TThreadPoolTests.Test18_ExceptionMessage;
 begin
   FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
   FThreadPool.WaitForAll;
@@ -490,7 +490,7 @@ begin
     Pos('[Thread', FThreadPool.LastError) > 0);
 end;
 
-procedure TThreadPoolTests.TestMultipleExceptions;
+procedure TThreadPoolTests.Test19_MultipleExceptions;
 begin
   // Queue multiple tasks that will raise exceptions
   FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
@@ -508,7 +508,7 @@ begin
   AssertEquals('Pool should still process tasks after exceptions', 1, FCounter);
 end;
 
-procedure TThreadPoolTests.TestExceptionAfterClear;
+procedure TThreadPoolTests.Test20_ExceptionAfterClear;
 begin
   // First exception
   FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
