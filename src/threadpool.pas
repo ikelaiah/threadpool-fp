@@ -163,16 +163,16 @@ type
     
     { Queue different types of work items }
     // Queue a simple procedure
-    procedure Queue(AProcedure: TThreadProcedure); overload;
+    function Queue(AProcedure: TThreadProcedure): TWorkItem; overload;
     // Queue an object method
-    procedure Queue(AMethod: TThreadMethod); overload;
+    function Queue(AMethod: TThreadMethod): TWorkItem; overload;
     // Queue an indexed procedure
-    procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); overload;
+    function Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer): TWorkItem; overload;
     // Queue an indexed method
-    procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); overload;
+    function Queue(AMethod: TThreadMethodIndex; AIndex: Integer): TWorkItem; overload;
     // Queue a simple procedure with a priority
-    procedure QueueWithPriority(AProcedure: TThreadProcedure; 
-      APriority: TTaskPriority = tpNormal);
+    function QueueWithPriority(AProcedure: TThreadProcedure; 
+      APriority: TTaskPriority = tpNormal): TWorkItem;
     // Add a dependency to a work item
     procedure AddDependency(AWorkItem, ADependsOn: TWorkItem);
     
@@ -596,7 +596,7 @@ end;
 
 { Queue overloads for different types of work items }
 
-procedure TThreadPool.Queue(AProcedure: TThreadProcedure);
+function TThreadPool.Queue(AProcedure: TThreadProcedure): TWorkItem;
 var
   WorkItem: TWorkItem;
 begin
@@ -618,13 +618,14 @@ begin
   WorkItem.FItemType := witProcedure;
   
   FWorkQueue.Enqueue(WorkItem);
+  Result := WorkItem;
 end;
 
-procedure TThreadPool.Queue(AMethod: TThreadMethod);
+function TThreadPool.Queue(AMethod: TThreadMethod): TWorkItem;
 var
   WorkItem: TWorkItem;
 begin
-  if FShutdown then Exit;
+  if FShutdown then Exit(nil);
   
   FWorkItemLock.Enter;
   try
@@ -640,13 +641,14 @@ begin
   WorkItem.FItemType := witMethod;
   
   FWorkQueue.Enqueue(WorkItem);
+  Result := WorkItem;
 end;
 
-procedure TThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
+function TThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer): TWorkItem;
 var
   WorkItem: TWorkItem;
 begin
-  if FShutdown then Exit;
+  if FShutdown then Exit(nil);
   
   FWorkItemLock.Enter;
   try
@@ -663,13 +665,14 @@ begin
   WorkItem.FItemType := witProcedureIndex;
   
   FWorkQueue.Enqueue(WorkItem);
+  Result := WorkItem;
 end;
 
-procedure TThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
+function TThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer): TWorkItem;
 var
   WorkItem: TWorkItem;
 begin
-  if FShutdown then Exit;
+  if FShutdown then Exit(nil);
   
   FWorkItemLock.Enter;
   try
@@ -686,6 +689,32 @@ begin
   WorkItem.FItemType := witMethodIndex;
   
   FWorkQueue.Enqueue(WorkItem);
+  Result := WorkItem;
+end;
+
+function TThreadPool.QueueWithPriority(AProcedure: TThreadProcedure; 
+  APriority: TTaskPriority): TWorkItem;
+var
+  WorkItem: TWorkItem;
+begin
+  if FShutdown then Exit(nil);
+  
+  FWorkItemLock.Enter;
+  try
+    Inc(FWorkItemCount);
+    if FWorkItemCount > 0 then
+      FWorkItemEvent.ResetEvent;
+  finally
+    FWorkItemLock.Leave;
+  end;
+  
+  WorkItem := TWorkItem.Create(Self);
+  WorkItem.FProcedure := AProcedure;
+  WorkItem.FItemType := witProcedure;
+  WorkItem.FPriority := APriority;
+  
+  FWorkQueue.Enqueue(WorkItem);
+  Result := WorkItem;
 end;
 
 procedure TThreadPool.WaitForAll;
@@ -704,30 +733,6 @@ begin
   finally
     FErrorLock.Leave;
   end;
-end;
-
-procedure TThreadPool.QueueWithPriority(AProcedure: TThreadProcedure; 
-  APriority: TTaskPriority);
-var
-  WorkItem: TWorkItem;
-begin
-  if FShutdown then Exit;
-  
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  WorkItem := TWorkItem.Create(Self);
-  WorkItem.FProcedure := AProcedure;
-  WorkItem.FItemType := witProcedure;
-  WorkItem.FPriority := APriority;
-  
-  FWorkQueue.Enqueue(WorkItem);
 end;
 
 procedure TThreadPool.AddDependency(AWorkItem, ADependsOn: TWorkItem);

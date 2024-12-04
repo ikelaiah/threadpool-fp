@@ -838,24 +838,25 @@ var
     end;
   end;
 
-  procedure ChainTask1; begin Sleep(10); AddToExecutionOrder('1'); end;
-  procedure ChainTask2; begin Sleep(15); AddToExecutionOrder('2'); end;
-  procedure ChainTask3; begin Sleep(20); AddToExecutionOrder('3'); end;
-  procedure ChainTask4; begin Sleep(10); AddToExecutionOrder('4'); end;
-  procedure ChainTask5; begin Sleep(15); AddToExecutionOrder('5'); end;
-  procedure ChainTask6; begin Sleep(20); AddToExecutionOrder('6'); end;
+  // Define local procedures that will be wrapped as TWorkItem
+  procedure DoTask1; begin Sleep(10); AddToExecutionOrder('1'); end;
+  procedure DoTask2; begin Sleep(15); AddToExecutionOrder('2'); end;
+  procedure DoTask3; begin Sleep(20); AddToExecutionOrder('3'); end;
+  procedure DoTask4; begin Sleep(10); AddToExecutionOrder('4'); end;
+  procedure DoTask5; begin Sleep(15); AddToExecutionOrder('5'); end;
+  procedure DoTask6; begin Sleep(20); AddToExecutionOrder('6'); end;
 
 begin
   ExecutionOrder := TStringList.Create;
   CS := TCriticalSection.Create;
   try
-    // Create complex dependency graph using nested procedures
-    Tasks[1] := FThreadPool.Queue(@ChainTask1);  // Use nested procedure
-    Tasks[2] := FThreadPool.Queue(@ChainTask2);
-    Tasks[3] := FThreadPool.Queue(@ChainTask3);
-    Tasks[4] := FThreadPool.Queue(@ChainTask4);
-    Tasks[5] := FThreadPool.Queue(@ChainTask5);
-    Tasks[6] := FThreadPool.Queue(@ChainTask6);
+    // Create tasks using TThreadProcedure
+    Tasks[1] := FThreadPool.Queue(TThreadProcedure(@DoTask1));
+    Tasks[2] := FThreadPool.Queue(TThreadProcedure(@DoTask2));
+    Tasks[3] := FThreadPool.Queue(TThreadProcedure(@DoTask3));
+    Tasks[4] := FThreadPool.Queue(TThreadProcedure(@DoTask4));
+    Tasks[5] := FThreadPool.Queue(TThreadProcedure(@DoTask5));
+    Tasks[6] := FThreadPool.Queue(TThreadProcedure(@DoTask6));
     
     // Add dependencies
     FThreadPool.AddDependency(Tasks[2], Tasks[1]);
