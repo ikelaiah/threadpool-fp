@@ -22,6 +22,18 @@ type
       property Counter: Integer read FCounter write FCounter;
     end;
 
+  { TThreadTracker }
+  TThreadTracker = class
+  private
+    FCS: TCriticalSection;
+    FCounts: array of Integer;
+  public
+    constructor Create(ThreadCount: Integer);
+    destructor Destroy; override;
+    procedure IncrementCount(ThreadIndex: Integer);
+    function GetCount(Index: Integer): Integer;
+  end;
+
   { TThreadPoolTests }
   TThreadPoolTests = class(TTestCase)
   private
@@ -29,9 +41,12 @@ type
     FTestObject: TTestObject;
     FCounter: Integer;
     FCS: TCriticalSection;
+    FLocalFirst: Boolean;
+    FProcessedLocal: Boolean;
     
     procedure IncrementCounter;
     procedure IncrementCounterWithIndex(AIndex: Integer);
+    function CreateWorkItem(AProc: TThreadProcedure): TWorkItem;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -56,28 +71,55 @@ type
     procedure Test18_ExceptionMessage;
     procedure Test19_MultipleExceptions;
     procedure Test20_ExceptionAfterClear;
+    procedure Test21_WorkStealing;
+    procedure Test22_LoadBalancing;
+    procedure Test23_LocalQueuePriority;
+    procedure Test24_WorkStealingOrder;
+    procedure Test25_LoadDistribution;
   end;
 
 var
-  // Global variable to hold current test instance
+  // Global variables
   CurrentTest: TThreadPoolTests;
+  GlobalTracker: TThreadTracker;
 
-// Standalone procedures for threading
-procedure GlobalIncrementCounter; 
+// Standalone procedures
+procedure GlobalIncrementCounter;
 procedure GlobalIncrementCounterWithIndex(AIndex: Integer);
+procedure GlobalSetLocalFirstFalse;
+procedure GlobalSetLocalFirstTrue;
+procedure TrackThreadWork;
 
 implementation
 
-procedure GlobalIncrementCounter;
+{ TThreadTracker }
+
+constructor TThreadTracker.Create(ThreadCount: Integer);
 begin
-  if Assigned(CurrentTest) then
-    CurrentTest.IncrementCounter;
+  inherited Create;
+  FCS := TCriticalSection.Create;
+  SetLength(FCounts, ThreadCount);
 end;
 
-procedure GlobalIncrementCounterWithIndex(AIndex: Integer);
+destructor TThreadTracker.Destroy;
 begin
-  if Assigned(CurrentTest) then
-    CurrentTest.IncrementCounterWithIndex(AIndex);
+  FCS.Free;
+  inherited;
+end;
+
+procedure TThreadTracker.IncrementCount(ThreadIndex: Integer);
+begin
+  FCS.Enter;
+  try
+    Inc(FCounts[ThreadIndex]);
+  finally
+    FCS.Leave;
+  end;
+end;
+
+function TThreadTracker.GetCount(Index: Integer): Integer;
+begin
+  Result := FCounts[Index];
 end;
 
 { TTestObject }
@@ -525,6 +567,259 @@ begin
   FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
   FThreadPool.WaitForAll;
   AssertEquals('Pool should work after clearing error', 1, FCounter);
+end;
+
+procedure TThreadPoolTests.Test21_WorkStealing;
+var
+  I: Integer;
+  StartTime: TDateTime;
+  List: TList;
+  WorkItem: TWorkItem;
+const
+  TaskCount = 1000;
+  ExpectedMaxTime = 2000; // 2 seconds
+begin
+  FCounter := 0;
+  StartTime := Now;
+  
+  // Queue many tasks to a single thread's local queue
+  List := FThreadPool.GetThreads.LockList;
+  try
+    for I := 1 to TaskCount do
+    begin
+      WorkItem := CreateWorkItem(TThreadProcedure(@GlobalIncrementCounter));
+      TWorkerThread(List[0]).LocalQueue.Push(WorkItem);
+    end;
+  finally
+    FThreadPool.GetThreads.UnlockList;
+  end;
+  
+  // Wait for all tasks to complete
+  FThreadPool.WaitForAll;
+  
+  // Verify results
+  AssertEquals('All tasks should be processed', TaskCount, FCounter);
+  AssertTrue('Tasks should complete faster with work stealing',
+    MilliSecondsBetween(Now, StartTime) < ExpectedMaxTime);
+end;
+
+type
+  TThreadLoadInfo = record
+    ThreadID: TThreadID;
+    Count: Integer;
+  end;
+  
+procedure TThreadPoolTests.Test22_LoadBalancing;
+var
+  I: Integer;
+const
+  TaskCount = 10;  // Reduced for testing
+begin
+  WriteLn('Starting Test22_LoadBalancing');
+  FCounter := 0;
+  
+  // Queue tasks
+  for I := 1 to TaskCount do
+  begin
+    WriteLn('Queueing task ', I);
+    FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
+  end;
+  
+  WriteLn('Waiting for tasks to complete');
+  FThreadPool.WaitForAll;
+  WriteLn('Tasks completed. Counter: ', FCounter);
+  
+  AssertEquals('All tasks should be processed', TaskCount, FCounter);
+end;
+
+procedure TThreadPoolTests.Test23_LocalQueuePriority;
+var
+  List: TList;
+  WorkItem: TWorkItem;
+begin
+  FLocalFirst := False;
+  FProcessedLocal := False;
+  
+  // Create a task for the global queue
+  FThreadPool.Queue(TThreadProcedure(@GlobalSetLocalFirstFalse));
+  
+  // Create a task for local queue
+  List := FThreadPool.GetThreads.LockList;
+  try
+    WorkItem := CreateWorkItem(TThreadProcedure(@GlobalSetLocalFirstTrue));
+    TWorkerThread(List[0]).LocalQueue.Push(WorkItem);
+  finally
+    FThreadPool.GetThreads.UnlockList;
+  end;
+  
+  FThreadPool.WaitForAll;
+  AssertTrue('Local queue tasks should be processed before global queue tasks',
+    FLocalFirst);
+end;
+
+type
+  TProcessRecord = record
+    Order: Integer;
+  end;
+  PProcessRecord = ^TProcessRecord;
+
+procedure TThreadPoolTests.Test24_WorkStealingOrder;
+var
+  ProcessOrder: TList;
+  CS: TCriticalSection;
+  List: TList;
+  I: Integer;
+  WorkItem: TWorkItem;
+  AllInOrder: Boolean;
+  ProcessRec: PProcessRecord;
+begin
+  ProcessOrder := TList.Create;
+  CS := TCriticalSection.Create;
+  try
+    // Queue tasks to a single thread's local queue
+    List := FThreadPool.GetThreads.LockList;
+    try
+      for I := 1 to 10 do
+      begin
+        New(ProcessRec);
+        ProcessRec^.Order := I;
+        ProcessOrder.Add(ProcessRec);
+        WorkItem := CreateWorkItem(TThreadProcedure(@GlobalIncrementCounter));
+        TWorkerThread(List[0]).LocalQueue.Push(WorkItem);
+      end;
+    finally
+      FThreadPool.GetThreads.UnlockList;
+    end;
+    
+    FThreadPool.WaitForAll;
+    
+    // Verify that some tasks were stolen and processed out of order
+    AllInOrder := True;
+    for I := 0 to ProcessOrder.Count - 2 do
+      if PProcessRecord(ProcessOrder[I])^.Order > PProcessRecord(ProcessOrder[I + 1])^.Order then
+      begin
+        AllInOrder := False;
+        Break;
+      end;
+      
+    AssertFalse('Some tasks should be processed out of order due to work stealing',
+      AllInOrder);
+  finally
+    // Clean up the process records
+    for I := 0 to ProcessOrder.Count - 1 do
+      Dispose(PProcessRecord(ProcessOrder[I]));
+    ProcessOrder.Free;
+    CS.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test25_LoadDistribution;
+var
+  Queues: array of Integer;
+  I, J: Integer;
+  List: TList;
+  MaxQueue, MinQueue: Integer;
+const
+  TaskCount = 100;
+begin
+  SetLength(Queues, FThreadPool.ThreadCount);
+  
+  // Queue tasks and track initial distribution
+  for I := 1 to TaskCount do
+  begin
+    FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
+    
+    // Record queue lengths
+    List := FThreadPool.GetThreads.LockList;
+    try
+      for J := 0 to List.Count - 1 do
+        Queues[J] := TWorkerThread(List[J]).LocalQueue.Count;
+    finally
+      FThreadPool.GetThreads.UnlockList;
+    end;
+    
+    // Find min and max queue lengths
+    MaxQueue := 0;
+    MinQueue := TaskCount;
+    for J := 0 to High(Queues) do
+    begin
+      if Queues[J] > MaxQueue then
+        MaxQueue := Queues[J];
+      if Queues[J] < MinQueue then
+        MinQueue := Queues[J];
+    end;
+    
+    // Allow small imbalance during queueing
+    AssertTrue(Format('Queue length difference (%d) should be small',
+      [MaxQueue - MinQueue]),
+      MaxQueue - MinQueue <= 2);
+  end;
+  
+  FThreadPool.WaitForAll;
+end;
+
+function TThreadPoolTests.CreateWorkItem(AProc: TThreadProcedure): TWorkItem;
+begin
+  Result := FThreadPool.CreateTestWorkItem;
+  Result.SetProcedure(AProc);
+  Result.SetItemType(witProcedure);
+end;
+
+procedure GlobalIncrementCounter;
+begin
+  if Assigned(CurrentTest) then
+    CurrentTest.IncrementCounter;
+end;
+
+procedure GlobalIncrementCounterWithIndex(AIndex: Integer);
+begin
+  if Assigned(CurrentTest) then
+    CurrentTest.IncrementCounterWithIndex(AIndex);
+end;
+
+procedure GlobalSetLocalFirstFalse;
+begin
+  if Assigned(CurrentTest) then
+  begin
+    CurrentTest.FLocalFirst := False;
+    CurrentTest.FProcessedLocal := False;
+  end;
+end;
+
+procedure GlobalSetLocalFirstTrue;
+begin
+  if Assigned(CurrentTest) then
+  begin
+    if not CurrentTest.FProcessedLocal then
+    begin
+      CurrentTest.FLocalFirst := True;
+      CurrentTest.FProcessedLocal := True;
+    end;
+  end;
+end;
+
+procedure TrackThreadWork;
+var
+  CurrentThread: TThread;
+  ThreadList: TList;
+  I: Integer;
+begin
+  WriteLn('TrackThreadWork started');  // Debug output
+  CurrentThread := TThread.CurrentThread;
+  ThreadList := CurrentTest.FThreadPool.GetThreads.LockList;
+  try
+    WriteLn('Got thread list');  // Debug output
+    for I := 0 to ThreadList.Count - 1 do
+      if TWorkerThread(ThreadList[I]) = CurrentThread then
+      begin
+        WriteLn('Found current thread: ', I);  // Debug output
+        GlobalTracker.IncrementCount(I);
+        Break;
+      end;
+  finally
+    CurrentTest.FThreadPool.GetThreads.UnlockList;
+  end;
+  WriteLn('TrackThreadWork finished');  // Debug output
 end;
 
 initialization

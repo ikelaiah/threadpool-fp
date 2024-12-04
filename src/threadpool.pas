@@ -17,6 +17,18 @@ uses
   Classes, SysUtils, SyncObjs, Math;
 
 type
+  { Forward declarations }
+  TWorkItem = class;
+  TWorkerThread = class;
+  TThreadPool = class;
+  TThreadSafeQueue = class;  // Add this forward declaration
+
+  { Work item type enumeration }
+  TWorkItemType = (witProcedure,                // Simple procedure
+                  witMethod,                    // Object method
+                  witProcedureIndex,           // Indexed procedure
+                  witMethodIndex);             // Indexed method
+
   { Task Types - Different kinds of work that can be queued }
   
   // Simple procedure with no parameters
@@ -33,6 +45,28 @@ type
   // Useful for object-oriented parallel processing
   TThreadMethodIndex = procedure(index: Integer) of object;
 
+  { TThreadSafeQueue - Thread-safe work queue }
+  // This class provides thread-safe operations for managing work items
+  // It supports both LIFO operations for local queue (Pop from end)
+  // and FIFO operations for work stealing (Steal from front)
+  TThreadSafeQueue = class
+  private
+    FItems: TList;                // Internal list storing work items
+    FLock: TCriticalSection;      // Synchronization object for thread safety
+  public
+    constructor Create;
+    destructor Destroy; override;
+    // Adds a work item to the end of the queue (thread-safe)
+    procedure Push(AItem: TWorkItem);
+    // Removes and returns an item from the end of the queue (LIFO, thread-safe)
+    function Pop: TWorkItem;
+    // Removes and returns an item from the front of the queue (FIFO, thread-safe)
+    // Used by other threads when stealing work
+    function Steal: TWorkItem;
+    // Returns the current number of items in the queue (thread-safe)
+    function Count: Integer;
+  end;
+
   { TWorkItem - Internal wrapper for queued tasks }
   // This class encapsulates different types of work items
   // and manages their execution in worker threads
@@ -44,14 +78,13 @@ type
     FMethodIndex: TThreadMethodIndex;        // Indexed method reference
     FIndex: Integer;                         // Index for indexed operations
     FObject: TObject;                        // Associated object reference
-    FItemType: (witProcedure,                // Type discriminator for work items
-                witMethod,
-                witProcedureIndex,
-                witMethodIndex);
+    FItemType: TWorkItemType;               // Change this to use the enum type
     FThreadPool: TObject;                    // Owner thread pool reference
   public
     constructor Create(AThreadPool: TObject);
     procedure Execute;                       // Executes the work item
+    procedure SetProcedure(AProc: TThreadProcedure);
+    procedure SetItemType(AType: TWorkItemType);
   end;
 
   { TWorkerThread - Thread that processes work items }
@@ -61,14 +94,14 @@ type
   private
     FThreadPool: TObject;                    // Owner thread pool reference
     FLastError: string;                      // Last error message from this thread
-    FLocalQueue: TThreadSafeQueue;          // Add this line
+    FLocalQueue: TThreadSafeQueue;          // Local work queue for this thread
   protected
     procedure Execute; override;             // Main thread execution loop
   public
     constructor Create(AThreadPool: TObject);
     destructor Destroy; override;
-    property LastError: string read FLastError;  // Access to last error message
-    property LocalQueue: TThreadSafeQueue read FLocalQueue;  // Add this line
+    property LastError: string read FLastError;
+    property LocalQueue: TThreadSafeQueue read FLocalQueue;
   end;
 
   { TThreadPool - Main thread pool manager }
@@ -119,28 +152,10 @@ type
     property ThreadCount: Integer read FThreadCount;  // Current thread count
     property LastError: string read FLastError;       // Last error message
     procedure ClearLastError;                         // Reset error state
-  end;
-
-  { TThreadSafeQueue - Thread-safe work queue }
-  // This class provides thread-safe operations for managing work items
-  // It supports both LIFO operations for local queue (Pop from end)
-  // and FIFO operations for work stealing (Steal from front)
-  TThreadSafeQueue = class
-  private
-    FItems: TList;                // Internal list storing work items
-    FLock: TCriticalSection;      // Synchronization object for thread safety
-  public
-    constructor Create;
-    destructor Destroy; override;
-    // Adds a work item to the end of the queue (thread-safe)
-    procedure Push(AItem: TWorkItem);
-    // Removes and returns an item from the end of the queue (LIFO, thread-safe)
-    function Pop: TWorkItem;
-    // Removes and returns an item from the front of the queue (FIFO, thread-safe)
-    // Used by other threads when stealing work
-    function Steal: TWorkItem;
-    // Returns the current number of items in the queue (thread-safe)
-    function Count: Integer;
+    property Threads: TThreadList read FThreads;
+    // Add these methods for testing
+    function GetThreads: TThreadList;
+    function CreateTestWorkItem: TWorkItem;
   end;
 
 var
@@ -179,9 +194,13 @@ begin
     Pool.FWorkItemLock.Enter;
     try
       Dec(Pool.FWorkItemCount);
+      WriteLn('Work item completed. Remaining: ', Pool.FWorkItemCount);
       // If this was the last work item, signal completion
       if Pool.FWorkItemCount = 0 then
+      begin
+        WriteLn('All work items completed, setting event');
         Pool.FWorkItemEvent.SetEvent;
+      end;
     finally
       Pool.FWorkItemLock.Leave;
     end;
@@ -209,50 +228,46 @@ var
 begin
   Pool := TThreadPool(FThreadPool);
   
-  // Main worker thread loop - continues until thread is terminated
   while not Terminated do
   begin
     WorkItem := nil;
     FoundWork := False;
     
-    // Work acquisition priority:
-    // 1. Try local queue first (fastest, no contention)
+    // 1. Try local queue first
     WorkItem := FLocalQueue.Pop;
+    
     if WorkItem = nil then
     begin
-      // 2. Try stealing from other threads' queues
-      ThreadList := Pool.FThreads.LockList;
+      // 2. Try global queue second
+      ThreadList := Pool.FWorkItems.LockList;
       try
-        for I := 0 to ThreadList.Count - 1 do
+        if ThreadList.Count > 0 then
         begin
-          OtherThread := TWorkerThread(ThreadList[I]);
-          // Only steal from other threads that have work
-          if (OtherThread <> Self) and (OtherThread.LocalQueue.Count > 0) then
-          begin
-            WorkItem := OtherThread.LocalQueue.Steal;
-            if WorkItem <> nil then
-            begin
-              FoundWork := True;
-              Break;
-            end;
-          end;
+          WorkItem := TWorkItem(ThreadList[0]);
+          ThreadList.Delete(0);
+          FoundWork := True;
         end;
       finally
-        Pool.FThreads.UnlockList;
+        Pool.FWorkItems.UnlockList;
       end;
       
-      // 3. Finally, try the global queue if no work was stolen
+      // 3. Try stealing last
       if not FoundWork then
       begin
-        ThreadList := Pool.FWorkItems.LockList;
+        ThreadList := Pool.FThreads.LockList;
         try
-          if ThreadList.Count > 0 then
+          for I := 0 to ThreadList.Count - 1 do
           begin
-            WorkItem := TWorkItem(ThreadList[0]);
-            ThreadList.Delete(0);
+            OtherThread := TWorkerThread(ThreadList[I]);
+            if (OtherThread <> Self) and (OtherThread.LocalQueue.Count > 0) then
+            begin
+              WorkItem := OtherThread.LocalQueue.Steal;
+              if WorkItem <> nil then
+                Break;
+            end;
           end;
         finally
-          Pool.FWorkItems.UnlockList;
+          Pool.FThreads.UnlockList;
         end;
       end;
     end;
@@ -266,8 +281,7 @@ begin
         begin
           Pool.FErrorLock.Enter;
           try
-            Pool.FLastError := Format('[Thread %d] %s', 
-              [ThreadID, E.Message]);
+            Pool.FLastError := Format('[Thread %d] %s', [ThreadID, E.Message]);
             Pool.FErrorEvent.SetEvent;
           finally
             Pool.FErrorLock.Leave;
@@ -277,7 +291,7 @@ begin
       WorkItem.Free;
     end
     else
-      Sleep(1);  // No work found, sleep briefly
+      Sleep(1);
   end;
 end;
 
@@ -427,10 +441,22 @@ var
 begin
   if FShutdown then Exit;
   
-  WorkItem := CreateWorkItem;
+  FWorkItemLock.Enter;
+  try
+    Inc(FWorkItemCount);
+    WriteLn('Queuing work item. Total: ', FWorkItemCount);
+    if FWorkItemCount > 0 then
+      FWorkItemEvent.ResetEvent;
+  finally
+    FWorkItemLock.Leave;
+  end;
+  
+  WorkItem := TWorkItem.Create(Self);
   WorkItem.FProcedure := AProcedure;
   WorkItem.FItemType := witProcedure;
-  QueueToLeastBusyThread(WorkItem);
+  
+  // Queue directly to global queue for now
+  FWorkItems.Add(WorkItem);
 end;
 
 procedure TThreadPool.Queue(AMethod: TThreadMethod);
@@ -473,7 +499,9 @@ end;
 
 procedure TThreadPool.WaitForAll;
 begin
+  WriteLn('WaitForAll called. Work items remaining: ', FWorkItemCount);
   FWorkItemEvent.WaitFor(INFINITE);  // Wait for all work items to complete
+  WriteLn('WaitForAll completed');
   // If there was an error, ensure it's fully captured
   if FErrorEvent.WaitFor(100) = wrSignaled then
     FErrorEvent.ResetEvent;
@@ -612,6 +640,26 @@ begin
   // Update internal counters and create new work item
   PrepareForNewWorkItem;
   Result := TWorkItem.Create(Self);
+end;
+
+function TThreadPool.GetThreads: TThreadList;
+begin
+  Result := FThreads;
+end;
+
+function TThreadPool.CreateTestWorkItem: TWorkItem;
+begin
+  Result := TWorkItem.Create(Self);
+end;
+
+procedure TWorkItem.SetProcedure(AProc: TThreadProcedure);
+begin
+  FProcedure := AProc;
+end;
+
+procedure TWorkItem.SetItemType(AType: TWorkItemType);
+begin
+  FItemType := AType;
 end;
 
 initialization
