@@ -2,7 +2,6 @@
 
 ## Architecture Overview
 
-
 ```mermaid
 graph TD
     A1[Application] --> G[GlobalThreadPool]
@@ -10,15 +9,19 @@ graph TD
     
     subgraph "Thread Pool"
         G & C1 --> |owns| TL[TThreadList]
-        G & C1 --> |owns| WQ[TThreadList<br>Work Queue]
-        G & C1 --> |owns| CS[TCriticalSection<br>Work Item Count]
-        G & C1 --> |owns| EV[TEvent<br>Completion Signal]
+        G & C1 --> |owns| PQ[TPriorityWorkQueue]
+        G & C1 --> |owns| CS[TCriticalSection]
+        G & C1 --> |owns| EV[TEvent]
+        G & C1 --> |manages| TS[Thread Scaling]
         
         TL --> |contains| W1[Worker Thread 1]
         TL --> |contains| W2[Worker Thread 2]
         TL --> |contains| Wn[Worker Thread n]
         
-        W1 & W2 & Wn -->|pop & execute| WQ
+        W1 & W2 & Wn -->|pop & execute| PQ
+        
+        TS --> |adjusts| TL
+        PQ --> |influences| TS
     end
     
     subgraph "Work Items"
@@ -26,7 +29,10 @@ graph TD
         P2[TThreadMethod] --> |wrapped as| WI
         P3[TThreadProcedureIndex] --> |wrapped as| WI
         P4[TThreadMethodIndex] --> |wrapped as| WI
-        WI -->|queued in| WQ
+        WI -->|queued in| PQ
+        WI -->|has| PR[Priority]
+        WI -->|has| ST[Status]
+        WI -->|has| DP[Dependencies]
     end
 ```
 
@@ -36,185 +42,264 @@ graph TD
 
 Main thread pool manager that:
 
-- Maintains worker threads using `TThreadList`
-- Manages work item queue using `TThreadList`
-- Tracks work item count with `TCriticalSection`
-- Signals completion using `TEvent`
-- Provides thread-safe queueing methods
-- Handles shutdown and cleanup
+- Maintains dynamic worker thread count
+- Manages priority-based work queue
+- Handles task dependencies
+- Implements automatic thread scaling
+- Provides thread-safe operations
+- Supports task prioritization
 
-### TWorkerThread
+### TPriorityWorkQueue
 
-Worker thread implementation that:
+Priority-based queue that:
 
-- Inherits from `TThread`
-- Runs suspended until explicitly started
-- Continuously polls for work items
-- Executes work items when available
-- Sleeps when idle to prevent busy waiting
-- Terminates cleanly on pool shutdown
+- Maintains separate queues for each priority level
+- Ensures higher priority tasks execute first
+- Handles task dependencies
+- Provides thread-safe operations
 
 ### TWorkItem
 
-Task wrapper that:
+Enhanced task wrapper that:
 
-- Encapsulates four types of work:
-  - Simple procedures (`TThreadProcedure`)
-  - Object methods (`TThreadMethod`)
-  - Indexed procedures (`TThreadProcedureIndex`)
-  - Indexed methods (`TThreadMethodIndex`)
-- Manages task execution
-- Updates completion status
+- Encapsulates different types of work
+- Tracks task status and dependencies
+- Supports task priorities
+- Manages execution state
+- Handles error reporting
 
+## Dynamic Thread Scaling
 
-## Usage Patterns
+### Load Monitor Thread
 
-### 1. Simple Procedure
-
-```pascal
-GlobalThreadPool.Queue(@SimpleProcedure);
+```mermaid
+graph TD
+    A[TLoadMonitorThread] -->|monitors| B[Thread Pool]
+    B -->|has| C[Worker Threads]
+    B -->|has| D[Work Queue]
+    A -->|adjusts| C
+    D -->|influences| A
 ```
 
-### 2. Method of Object
+The thread pool implements dynamic scaling through a dedicated monitoring thread:
 
 ```pascal
-GlobalThreadPool.Queue(@SimpleProcedure);
+TLoadMonitorThread = class(TThread)
+private
+  FThreadPool: TThreadPool;
+protected
+  procedure Execute; override;
+public
+  constructor Create(AThreadPool: TThreadPool);
+end;
 ```
 
-
-### 3. Indexed Operations
-
+### Scaling Algorithm
 
 ```pascal
-GlobalThreadPool.Queue(@ProcessItem, itemIndex);
+function TThreadPool.CalculateOptimalThreadCount: Integer;
+var
+  QueueLength: Integer;
+  ProcessorCount: Integer;
+  UtilizationRate: Double;
+begin
+  // Get current queue length
+  QueueLength := FWorkItemCount;
+  
+  // Calculate utilization rate (tasks per thread)
+  UtilizationRate := QueueLength / FThreadCount;
+  
+  if UtilizationRate > FTargetQueueLength then
+    // Need more threads
+    Result := Min(FMaxThreads, Max(FMinThreads,
+      Min(ProcessorCount * 2, QueueLength div FTargetQueueLength)))
+  else if UtilizationRate < (FTargetQueueLength div 2) then
+    // Can reduce threads
+    Result := Max(FMinThreads, QueueLength div FTargetQueueLength)
+  else
+    // Current count is good
+    Result := FThreadCount;
+end;
 ```
 
-## Example Implementation
+### Scaling Parameters
 
-See examples in the [examples](../examples) directory.
+1. **Thread Count Limits**
+   - MinThreads: Minimum number of threads (default: max(4, CPU count))
+   - MaxThreads: Maximum number of threads (default: CPU count × 2)
+   - Current thread count must stay within these limits
 
-## Thread Safety
+2. **Monitoring Parameters**
+   - LoadCheckInterval: Milliseconds between checks
+   - TargetQueueLength: Ideal number of tasks per thread
+   - UtilizationRate: Current tasks per thread
 
-The implementation uses several synchronization mechanisms:
+3. **Scaling Triggers**
+   - Scale Up: UtilizationRate > TargetQueueLength
+   - Scale Down: UtilizationRate < (TargetQueueLength ÷ 2)
+   - No Change: Within optimal range
 
-- `TThreadList` for thread and work item collections
-- `TCriticalSection` for work item count
-- `TEvent` for completion signaling
-- Thread-safe queue operations
+### Thread Safety in Scaling
 
-## Performance Considerations
+The scaling mechanism implements several safety measures:
 
-- Thread count is based on `TThread.ProcessorCount` (see [limitations](#system-processor-count-detection-limitations) below)
-- Sleep(1) prevents busy waiting in worker threads
-- Batch processing recommended for small tasks
-- Consider task granularity to avoid overhead
+1. **Synchronized Thread List Access**
+```pascal
+ThreadList := FThreads.LockList;
+try
+  // Thread list modifications
+finally
+  FThreads.UnlockList;
+end;
+```
 
-## Thread Management
+2. **Interval-Based Checks**
+```pascal
+if MilliSecondsBetween(Now, FLastLoadCheck) < FLoadCheckInterval then
+  Exit;
+```
 
-### Thread Count Safety
+3. **Safe Thread Addition/Removal**
+```pascal
+procedure TThreadPool.AddWorkerThread;
+begin
+  Thread := TWorkerThread.Create(Self);
+  FThreads.Add(Thread);
+  Thread.Start;
+  Inc(FThreadCount);
+end;
+```
 
-The thread pool implements several safety measures for thread count:
+### Performance Considerations
 
-1. **Minimum Threads**
-   - Enforces minimum of 4 threads
-   - Ensures basic parallel processing capability
-   - Prevents ineffective thread pools
+1. **Monitor Thread Overhead**
+   - Dedicated thread for monitoring
+   - Configurable check interval
+   - Minimal impact on worker threads
 
-2. **Maximum Threads**
-   - Limits to 2× ProcessorCount
-   - Prevents system resource exhaustion
-   - Scales reasonably with available processors
+2. **Scaling Overhead**
+   - Thread creation/destruction costs
+   - Lock contention during scaling
+   - Memory usage per thread
 
-3. **Default Behavior**
-   - Uses ProcessorCount when count ≤ 0
-   - Automatically adjusts out-of-range values
-   - Maintains safe operating parameters
+3. **Optimization Tips**
+   - Adjust LoadCheckInterval based on workload patterns
+   - Set appropriate MinThreads/MaxThreads for your use case
+   - Consider task granularity when setting TargetQueueLength
 
-### Thread Count Initialization
+## Task Priority System
 
-The default thread count uses `TThread.ProcessorCount`, but this has important limitations:
+### Priority Levels
 
+```pascal
+type
+  TTaskPriority = (
+    tpLow,      // Background tasks
+    tpNormal,   // Default priority
+    tpHigh,     // Important tasks
+    tpCritical  // Urgent tasks
+  );
+```
+
+### Task Status Tracking
+
+```pascal
+type
+  TTaskStatus = (
+    tsQueued,     // Task is queued
+    tsExecuting,  // Currently executing
+    tsCompleted,  // Completed successfully
+    tsFailed      // Failed with error
+  );
+```
+
+## Thread Safety Mechanisms
+
+1. **Priority Queue**
+   - Separate thread-safe queues per priority
+   - Lock-protected queue operations
+   - Atomic priority-based dequeuing
+
+2. **Thread Management**
+   - Thread-safe thread list operations
+   - Synchronized thread count adjustments
+   - Protected thread scaling calculations
+
+3. **Task Management**
+   - Thread-safe task status updates
+   - Protected dependency checking
+   - Synchronized error handling
+
+## Performance Optimizations
+
+1. **Dynamic Scaling**
+   - Adapts to workload changes
+   - Prevents thread overhead
+   - Optimizes resource usage
+
+2. **Priority Processing**
+   - Ensures critical tasks execute first
+   - Maintains responsiveness
+   - Balances resource allocation
+
+3. **Dependency Management**
+   - Prevents unnecessary task execution
+   - Optimizes task ordering
+   - Reduces resource waste
+
+## Implementation Notes
+
+### Thread Pool Creation
 ```pascal
 constructor TThreadPool.Create(AThreadCount: Integer = 0);
 begin
-  // Safety limits:
-  // - Minimum: 4 threads
-  // - Maximum: 2× ProcessorCount
-  // - Default: ProcessorCount (when ≤ 0)
-  if AThreadCount <= 0 then
-    AThreadCount := TThread.ProcessorCount
-  else
-    AThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
-  AThreadCount := Max(AThreadCount, 4);
-
-  // -- other snippet
-
+  // Initialize with dynamic scaling support
+  FMinThreads := Max(4, TThread.ProcessorCount);
+  FMaxThreads := TThread.ProcessorCount * 2;
+  FLoadCheckInterval := 1000;
+  FTargetQueueLength := 4;
+  // ... rest of initialization
 end;
 ```
 
-### Implementation Notes
-
-- Thread creation is managed in constructor
-- All threads start suspended
-- Explicit start after initialization
-- Clean shutdown in destructor
-- Thread-safe collections for management
-
-
-### System Processor Count Detection Limitations
-
-- `TThread.ProcessorCount` is set once at program start
-- No guarantee whether it counts cores or CPUs
-- May not reflect dynamic system changes
-- Should be treated as approximate guidance only
-
-### Performance Considerations
-1. **Sleep Prevention**: Worker threads use `Sleep(1)` when idle
-2. **Task Granularity**: Consider overhead vs task size
-3. **Thread Count**: Default uses system processor count
-4. **Shutdown**: Clean termination of all threads
-5. **Resource Management**: Proper cleanup in destructor
-
-## Exception Handling
-
-The thread pool implements a robust exception handling system:
-
-### Error Capture
-- Worker threads catch all exceptions
-- Error messages are stored thread-safely
-- Thread ID is included in error messages
-- Last error is accessible via `LastError` property
-
-### Implementation Details
-
+### Worker Thread Execution
 ```pascal
-// Worker thread exception handling
-try
-  WorkItem.Execute;
-except
-  on E: Exception do
-    // Thread-safe error capture
-    ThreadPool.StoreError(Format('[Thread %d] %s', 
-      [ThreadID, E.Message]));
+procedure TWorkerThread.Execute;
+begin
+  while not Terminated do
+  begin
+    // Check for thread scaling
+    Pool.AdjustThreadCount;
+    
+    // Get next task respecting priorities
+    WorkItem := Pool.FWorkQueue.Dequeue;
+    
+    if WorkItem <> nil then
+      ExecuteTask(WorkItem)
+    else
+      Sleep(1);
+  end;
 end;
 ```
 
-### Error Management
+## Limitations and Considerations
 
-- Thread-safe error storage using critical sections
-- Error state can be cleared via `ClearLastError`
-- Pool continues operating after exceptions
-- Each new error overwrites the previous one
+1. **Scaling Limitations**
+   - Minimum 4 threads enforced
+   - Maximum limited by processor count
+   - Scaling checks have overhead
 
-### Best Practices
+2. **Priority Considerations**
+   - Priority inversion possible
+   - Starvation of low-priority tasks
+   - Priority queue lock contention
 
-1. Check `LastError` after `WaitForAll`
-2. Clear errors before reusing the pool
-3. Consider logging persistent errors
-4. Use thread IDs to track error sources
+3. **Dependencies**
+   - Circular dependencies not detected
+   - Complex dependencies impact performance
+   - Memory overhead for dependency tracking
 
-### Limitations
-- Only stores most recent error
-- No built-in error event handling
-- No exception propagation to main thread
-- No error queue implementation
+4. **Resource Usage**
+   - Memory per thread
+   - Lock contention at high loads
+   - Queue memory overhead

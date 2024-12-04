@@ -29,33 +29,74 @@ type
     FTestObject: TTestObject;
     FCounter: Integer;
     FCS: TCriticalSection;
+    FExecutionOrder: TStringList;
     
+    // Helper methods for tests
+    procedure RecordExecution(Priority: TTaskPriority);
+    procedure RecordCompletion(Priority: Integer);
+    procedure AddExecution(const TaskName: string);
+    
+    // Test task methods
+    procedure PriorityTask(Priority: Integer);
+    procedure LongLowPriorityTask;
+    procedure ShortHighPriorityTask;
+    procedure LongTask;
+    procedure Task1;
+    procedure Task2;
+    procedure Task3;
+    procedure Task4;
+    procedure Task5;
+    procedure Task6;
+    procedure VariableWorkload;
+    
+    // Existing methods
     procedure IncrementCounter;
     procedure IncrementCounterWithIndex(AIndex: Integer);
+    
+    // Add these methods
+    procedure LowPriorityTestTask;
+    procedure NormalPriorityTestTask;
+    procedure HighPriorityTestTask;
+    procedure CriticalPriorityTestTask;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
   published
-    procedure TestCreateDestroy;
-    procedure TestSimpleProcedure;
-    procedure TestMethodProcedure;
-    procedure TestIndexedProcedure;
-    procedure TestIndexedMethod;
-    procedure TestMultipleThreads;
-    procedure TestStressTest;
-    procedure TestZeroThreadCount;
-    procedure TestNegativeThreadCount;
-    procedure TestMaxThreadCount;
-    procedure TestConcurrentQueueAccess;
-    procedure TestEmptyQueue;
-    procedure TestQueueAfterWait;
-    procedure TestMultipleWaits;
-    procedure TestObjectLifetime;
-    procedure TestExceptionHandling;
-    procedure TestThreadReuse;
-    procedure TestExceptionMessage;
-    procedure TestMultipleExceptions;
-    procedure TestExceptionAfterClear;
+    procedure Test1_CreateDestroy;
+    procedure Test2_SimpleProcedure;
+    procedure Test3_MethodProcedure;
+    procedure Test4_IndexedProcedure;
+    procedure Test5_IndexedMethod;
+    procedure Test6_MultipleThreads;
+    procedure Test7_StressTest;
+    procedure Test8_ZeroThreadCount;
+    procedure Test9_NegativeThreadCount;
+    procedure Test10_MaxThreadCount;
+    procedure Test11_ConcurrentQueueAccess;
+    procedure Test12_EmptyQueue;
+    procedure Test13_QueueAfterWait;
+    procedure Test14_MultipleWaits;
+    procedure Test15_ObjectLifetime;
+    procedure Test16_ExceptionHandling;
+    procedure Test17_ThreadReuse;
+    procedure Test18_ExceptionMessage;
+    procedure Test19_MultipleExceptions;
+    procedure Test20_ExceptionAfterClear;
+    procedure Test21_TaskPriorities;
+    procedure Test22_DynamicScaling;
+    procedure Test23_TaskDependencies;
+    procedure Test24_ScalingLimits;
+    procedure Test25_LoadMonitorThread;
+    procedure Test26_PriorityInversion;
+    procedure Test27_TaskCancellation;
+    procedure Test28_ComplexDependencyChain;
+    procedure Test29_ScalingUnderStress;
+    procedure Test30_PriorityQueueStress;
+    procedure Test31_MixedWorkloads;
+    procedure Test32_ThreadReliability;
+    procedure Test33_QueueSaturation;
+    procedure Test34_ScalingHysteresis;
+    procedure Test35_ErrorPropagation;
   end;
 
 var
@@ -149,7 +190,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestCreateDestroy;
+procedure TThreadPoolTests.Test1_CreateDestroy;
 var
   Pool: TThreadPool;
 const
@@ -175,7 +216,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestSimpleProcedure;
+procedure TThreadPoolTests.Test2_SimpleProcedure;
 begin
   FCounter := 0;
   FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
@@ -183,7 +224,7 @@ begin
   AssertEquals('Counter should be incremented once', 1, FCounter);
 end;
 
-procedure TThreadPoolTests.TestMethodProcedure;
+procedure TThreadPoolTests.Test3_MethodProcedure;
 begin
   FTestObject.Counter := 0;
   FThreadPool.Queue(TThreadMethod(@FTestObject.IncrementCounter));
@@ -191,7 +232,7 @@ begin
   AssertEquals('Counter should be incremented once', 1, FTestObject.Counter);
 end;
 
-procedure TThreadPoolTests.TestIndexedProcedure;
+procedure TThreadPoolTests.Test4_IndexedProcedure;
 begin
   FCounter := 0;
   FThreadPool.Queue(TThreadProcedureIndex(@GlobalIncrementCounterWithIndex), 5);
@@ -199,7 +240,7 @@ begin
   AssertEquals('Counter should be incremented by index', 5, FCounter);
 end;
 
-procedure TThreadPoolTests.TestIndexedMethod;
+procedure TThreadPoolTests.Test5_IndexedMethod;
 begin
   FTestObject.Counter := 0;
   FThreadPool.Queue(TThreadMethodIndex(@FTestObject.IncrementCounterWithIndex), 5);
@@ -207,7 +248,7 @@ begin
   AssertEquals('Counter should be incremented by index', 5, FTestObject.Counter);
 end;
 
-procedure TThreadPoolTests.TestMultipleThreads;
+procedure TThreadPoolTests.Test6_MultipleThreads;
 var
   I: Integer;
 const
@@ -221,7 +262,7 @@ begin
   AssertEquals('Counter should match task count', TaskCount, FCounter);
 end;
 
-procedure TThreadPoolTests.TestStressTest;
+procedure TThreadPoolTests.Test7_StressTest;
 var
   I: Integer;
 const
@@ -244,7 +285,7 @@ begin
   AssertEquals('Counter should match expected total', TaskCount, FCounter + FTestObject.Counter);
 end;
 
-procedure TThreadPoolTests.TestZeroThreadCount;
+procedure TThreadPoolTests.Test8_ZeroThreadCount;
 var
   Pool: TThreadPool;
 begin
@@ -259,7 +300,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestNegativeThreadCount;
+procedure TThreadPoolTests.Test9_NegativeThreadCount;
 var
   Pool: TThreadPool;
 begin
@@ -274,7 +315,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestMaxThreadCount;
+procedure TThreadPoolTests.Test10_MaxThreadCount;
 var
   Pool: TThreadPool;
 const
@@ -330,7 +371,7 @@ begin
     FPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
 end;
 
-procedure TThreadPoolTests.TestConcurrentQueueAccess;
+procedure TThreadPoolTests.Test11_ConcurrentQueueAccess;
 var
   Threads: array[1..5] of TTestQueueThread;
   StartEvent: TEvent;
@@ -367,13 +408,13 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestEmptyQueue;
+procedure TThreadPoolTests.Test12_EmptyQueue;
 begin
   FThreadPool.WaitForAll;  // Should not hang or raise exceptions
   AssertEquals('Counter should remain zero', 0, FCounter);
 end;
 
-procedure TThreadPoolTests.TestQueueAfterWait;
+procedure TThreadPoolTests.Test13_QueueAfterWait;
 begin
   FCounter := 0;
   FThreadPool.WaitForAll;
@@ -382,7 +423,7 @@ begin
   AssertEquals('Counter should be incremented', 1, FCounter);
 end;
 
-procedure TThreadPoolTests.TestMultipleWaits;
+procedure TThreadPoolTests.Test14_MultipleWaits;
 begin
   FCounter := 0;
   FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
@@ -406,7 +447,7 @@ begin
   raise TTestException.Create('Another exception message');
 end;
 
-procedure TThreadPoolTests.TestExceptionHandling;
+procedure TThreadPoolTests.Test16_ExceptionHandling;
 var
   ExceptionRaised: Boolean;
   StartTime: TDateTime;
@@ -435,7 +476,7 @@ begin
   AssertFalse('Exception should not propagate to main thread', ExceptionRaised);
 end;
 
-procedure TThreadPoolTests.TestObjectLifetime;
+procedure TThreadPoolTests.Test15_ObjectLifetime;
 var
   Obj: TTestObject;
 begin
@@ -450,7 +491,7 @@ begin
   end;
 end;
 
-procedure TThreadPoolTests.TestThreadReuse;
+procedure TThreadPoolTests.Test17_ThreadReuse;
 var
   i: Integer;
 const
@@ -469,7 +510,7 @@ begin
   AssertEquals('All tasks should be processed', BatchSize, FCounter);
 end;
 
-procedure TThreadPoolTests.TestExceptionMessage;
+procedure TThreadPoolTests.Test18_ExceptionMessage;
 begin
   FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
   FThreadPool.WaitForAll;
@@ -490,7 +531,7 @@ begin
     Pos('[Thread', FThreadPool.LastError) > 0);
 end;
 
-procedure TThreadPoolTests.TestMultipleExceptions;
+procedure TThreadPoolTests.Test19_MultipleExceptions;
 begin
   // Queue multiple tasks that will raise exceptions
   FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
@@ -508,7 +549,7 @@ begin
   AssertEquals('Pool should still process tasks after exceptions', 1, FCounter);
 end;
 
-procedure TThreadPoolTests.TestExceptionAfterClear;
+procedure TThreadPoolTests.Test20_ExceptionAfterClear;
 begin
   // First exception
   FThreadPool.Queue(TThreadProcedure(@RaiseTestException));
@@ -525,6 +566,459 @@ begin
   FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
   FThreadPool.WaitForAll;
   AssertEquals('Pool should work after clearing error', 1, FCounter);
+end;
+
+procedure TThreadPoolTests.LowPriorityTestTask;
+begin
+  Sleep(10);
+  FExecutionOrder.Add('Low');
+end;
+
+procedure TThreadPoolTests.NormalPriorityTestTask;
+begin
+  Sleep(10);
+  FExecutionOrder.Add('Normal');
+end;
+
+procedure TThreadPoolTests.HighPriorityTestTask;
+begin
+  Sleep(10);
+  FExecutionOrder.Add('High');
+end;
+
+procedure TThreadPoolTests.CriticalPriorityTestTask;
+begin
+  Sleep(10);
+  FExecutionOrder.Add('Critical');
+end;
+
+procedure TThreadPoolTests.Test21_TaskPriorities;
+begin
+  FExecutionOrder := TStringList.Create;
+  try
+    // Queue tasks in reverse priority order
+    FThreadPool.QueueWithPriority(TThreadProcedure(@Self.LowPriorityTestTask), tpLow);
+    FThreadPool.QueueWithPriority(TThreadProcedure(@Self.NormalPriorityTestTask), tpNormal);
+    FThreadPool.QueueWithPriority(TThreadProcedure(@Self.HighPriorityTestTask), tpHigh);
+    FThreadPool.QueueWithPriority(TThreadProcedure(@Self.CriticalPriorityTestTask), tpCritical);
+    
+    FThreadPool.WaitForAll;
+    
+    // Verify execution order - higher priorities should execute first
+    AssertEquals('Critical task should execute first', 'Critical', FExecutionOrder[0]);
+    AssertEquals('High priority task should execute second', 'High', FExecutionOrder[1]);
+    // Note: Normal and Low might vary due to thread timing
+  finally
+    FExecutionOrder.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test22_DynamicScaling;
+var
+  InitialThreadCount: Integer;
+  MaxThreads: Integer;
+  I: Integer;
+const
+  TaskCount = 1000;
+  TaskDuration = 50; // milliseconds
+
+  procedure LongRunningTask;
+  begin
+    Sleep(TaskDuration);
+  end;
+
+begin
+  InitialThreadCount := FThreadPool.ThreadCount;
+  MaxThreads := FThreadPool.MaxThreads;
+  
+  // Queue many long-running tasks
+  for I := 1 to TaskCount do
+    FThreadPool.Queue(@LongRunningTask);
+    
+  // Wait a bit for scaling to occur
+  Sleep(FThreadPool.LoadCheckInterval * 2);
+  
+  // Thread count should increase under load
+  AssertTrue('Thread count should increase under load',
+    FThreadPool.ThreadCount > InitialThreadCount);
+    
+  AssertTrue('Thread count should not exceed maximum',
+    FThreadPool.ThreadCount <= MaxThreads);
+    
+  FThreadPool.WaitForAll;
+  
+  // Wait for scaling down
+  Sleep(FThreadPool.LoadCheckInterval * 2);
+  
+  // Thread count should decrease after load is gone
+  AssertTrue('Thread count should decrease after load',
+    FThreadPool.ThreadCount < MaxThreads);
+end;
+
+procedure TThreadPoolTests.Test23_TaskDependencies;
+var
+  Step: Integer;
+  CS: TCriticalSection;
+
+  procedure Step1;
+  begin
+    CS.Enter;
+    try
+      AssertEquals('Step 1 should execute first', 0, Step);
+      Step := 1;
+    finally
+      CS.Leave;
+    end;
+    Sleep(50); // Ensure some overlap potential
+  end;
+
+  procedure Step2;
+  begin
+    CS.Enter;
+    try
+      AssertEquals('Step 2 should execute after Step 1', 1, Step);
+      Step := 2;
+    finally
+      CS.Leave;
+    end;
+    Sleep(50);
+  end;
+
+  procedure Step3;
+  begin
+    CS.Enter;
+    try
+      AssertEquals('Step 3 should execute after Step 2', 2, Step);
+      Step := 3;
+    finally
+      CS.Leave;
+    end;
+  end;
+
+var
+  Task1, Task2, Task3: TWorkItem;
+begin
+  Step := 0;
+  CS := TCriticalSection.Create;
+  try
+    // Create dependent chain of tasks
+    Task1 := FThreadPool.Queue(@Step1);
+    Task2 := FThreadPool.Queue(@Step2);
+    Task3 := FThreadPool.Queue(@Step3);
+    
+    // Set up dependencies
+    FThreadPool.AddDependency(Task2, Task1);
+    FThreadPool.AddDependency(Task3, Task2);
+    
+    FThreadPool.WaitForAll;
+    
+    AssertEquals('All steps should complete in order', 3, Step);
+  finally
+    CS.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test24_ScalingLimits;
+begin
+  // Test minimum thread count
+  FThreadPool.MinThreads := 2;  // Try to set below minimum
+  AssertTrue('MinThreads should not go below 4',
+    FThreadPool.MinThreads >= 4);
+    
+  // Test maximum thread count
+  FThreadPool.MaxThreads := TThread.ProcessorCount * 4;  // Try to set too high
+  AssertTrue('MaxThreads should not exceed 2x ProcessorCount',
+    FThreadPool.MaxThreads <= TThread.ProcessorCount * 2);
+    
+  // Test relationship between min and max
+  FThreadPool.MinThreads := FThreadPool.MaxThreads + 1;  // Try invalid setting
+  AssertTrue('MinThreads should not exceed MaxThreads',
+    FThreadPool.MinThreads <= FThreadPool.MaxThreads);
+end;
+
+procedure TThreadPoolTests.Test25_LoadMonitorThread;
+var
+  StartTime: TDateTime;
+  CheckCount: Integer;
+  LastThreadCount: Integer;
+begin
+  StartTime := Now;
+  CheckCount := 0;
+  LastThreadCount := FThreadPool.ThreadCount;
+  
+  // Queue some work to trigger scaling
+  while MilliSecondsBetween(Now, StartTime) < 2000 do  // Test for 2 seconds
+  begin
+    if MilliSecondsBetween(Now, StartTime) mod FThreadPool.LoadCheckInterval = 0 then
+    begin
+      if LastThreadCount <> FThreadPool.ThreadCount then
+      begin
+        Inc(CheckCount);
+        LastThreadCount := FThreadPool.ThreadCount;
+      end;
+    end;
+    FThreadPool.Queue(@GlobalIncrementCounter);
+    Sleep(10);
+  end;
+  
+  FThreadPool.WaitForAll;
+  
+  AssertTrue('Load monitor should perform multiple checks',
+    CheckCount > 0);
+end;
+
+procedure TThreadPoolTests.Test26_PriorityInversion;
+var
+  ExecutionTimes: array[TTaskPriority] of TDateTime;
+  CS: TCriticalSection;
+
+  procedure RecordExecution(Priority: TTaskPriority);
+  begin
+    CS.Enter;
+    try
+      ExecutionTimes[Priority] := Now;
+    finally
+      CS.Leave;
+    end;
+  end;
+
+begin
+  CS := TCriticalSection.Create;
+  try
+    // Queue low priority task first
+    FThreadPool.QueueWithPriority(@LongLowPriorityTask, tpLow);
+    Sleep(10); // Give it time to start
+    
+    // Queue high priority task
+    FThreadPool.QueueWithPriority(@ShortHighPriorityTask, tpHigh);
+    
+    FThreadPool.WaitForAll;
+    
+    // High priority task should finish before low priority task
+    AssertTrue('High priority task should complete before low priority task',
+      ExecutionTimes[tpHigh] < ExecutionTimes[tpLow]);
+  finally
+    CS.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test27_TaskCancellation;
+var
+  Completed: Boolean;
+  CS: TCriticalSection;
+
+  procedure LongTask;
+  var
+    I: Integer;
+  begin
+    for I := 1 to 10 do
+    begin
+      if FThreadPool.Terminated then
+        Exit;
+      Sleep(100);
+    end;
+    
+    CS.Enter;
+    try
+      Completed := True;
+    finally
+      CS.Leave;
+    end;
+  end;
+
+begin
+  CS := TCriticalSection.Create;
+  Completed := False;
+  try
+    FThreadPool.Queue(@LongTask);
+    Sleep(250); // Let task start
+    
+    // Request shutdown
+    FThreadPool.Shutdown;
+    
+    AssertFalse('Task should not complete after shutdown', Completed);
+  finally
+    CS.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test28_ComplexDependencyChain;
+var
+  ExecutionOrder: TStringList;
+  CS: TCriticalSection;
+
+  procedure AddExecution(const TaskName: string);
+  begin
+    CS.Enter;
+    try
+      ExecutionOrder.Add(TaskName);
+    finally
+      CS.Leave;
+    end;
+  end;
+
+var
+  Tasks: array[1..6] of TWorkItem;
+  
+  procedure Task1; begin Sleep(10); AddExecution('1'); end;
+  procedure Task2; begin Sleep(15); AddExecution('2'); end;
+  procedure Task3; begin Sleep(20); AddExecution('3'); end;
+  procedure Task4; begin Sleep(10); AddExecution('4'); end;
+  procedure Task5; begin Sleep(15); AddExecution('5'); end;
+  procedure Task6; begin Sleep(20); AddExecution('6'); end;
+
+begin
+  ExecutionOrder := TStringList.Create;
+  CS := TCriticalSection.Create;
+  try
+    // Create complex dependency graph:
+    // 1 -> 2 -> 3
+    // 4 -> 5 -> 6
+    // 2 -> 5
+    // 3 -> 6
+    
+    Tasks[1] := FThreadPool.Queue(@Task1);
+    Tasks[2] := FThreadPool.Queue(@Task2);
+    Tasks[3] := FThreadPool.Queue(@Task3);
+    Tasks[4] := FThreadPool.Queue(@Task4);
+    Tasks[5] := FThreadPool.Queue(@Task5);
+    Tasks[6] := FThreadPool.Queue(@Task6);
+    
+    FThreadPool.AddDependency(Tasks[2], Tasks[1]);
+    FThreadPool.AddDependency(Tasks[3], Tasks[2]);
+    FThreadPool.AddDependency(Tasks[5], Tasks[4]);
+    FThreadPool.AddDependency(Tasks[6], Tasks[5]);
+    FThreadPool.AddDependency(Tasks[5], Tasks[2]);
+    FThreadPool.AddDependency(Tasks[6], Tasks[3]);
+    
+    FThreadPool.WaitForAll;
+    
+    // Verify dependencies were respected
+    AssertTrue('Task 2 should execute after Task 1',
+      ExecutionOrder.IndexOf('2') > ExecutionOrder.IndexOf('1'));
+    AssertTrue('Task 3 should execute after Task 2',
+      ExecutionOrder.IndexOf('3') > ExecutionOrder.IndexOf('2'));
+    AssertTrue('Task 5 should execute after Task 4',
+      ExecutionOrder.IndexOf('5') > ExecutionOrder.IndexOf('4'));
+    AssertTrue('Task 6 should execute after Task 5',
+      ExecutionOrder.IndexOf('6') > ExecutionOrder.IndexOf('5'));
+    AssertTrue('Task 5 should execute after Task 2',
+      ExecutionOrder.IndexOf('5') > ExecutionOrder.IndexOf('2'));
+    AssertTrue('Task 6 should execute after Task 3',
+      ExecutionOrder.IndexOf('6') > ExecutionOrder.IndexOf('3'));
+  finally
+    ExecutionOrder.Free;
+    CS.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test29_ScalingUnderStress;
+var
+  StartThreads, PeakThreads, EndThreads: Integer;
+  ThreadCounts: TList;
+  CS: TCriticalSection;
+  I: Integer;
+const
+  StressIterations = 1000;
+  
+  procedure RecordThreadCount;
+  begin
+    CS.Enter;
+    try
+      ThreadCounts.Add(Pointer(PtrUInt(FThreadPool.ThreadCount)));
+    finally
+      CS.Leave;
+    end;
+  end;
+  
+  procedure VariableWorkload;
+  begin
+    RecordThreadCount;
+    if Random(100) < 50 then
+      Sleep(Random(50))  // Simulate varying workload
+    else
+      Sleep(Random(200));
+  end;
+
+begin
+  CS := TCriticalSection.Create;
+  ThreadCounts := TList.Create;
+  try
+    StartThreads := FThreadPool.ThreadCount;
+    
+    // Generate random workload
+    Randomize;
+    for I := 1 to StressIterations do
+      FThreadPool.Queue(@VariableWorkload);
+      
+    FThreadPool.WaitForAll;
+    
+    // Analyze thread count variations
+    PeakThreads := 0;
+    for I := 0 to ThreadCounts.Count - 1 do
+      if PtrUInt(ThreadCounts[I]) > PeakThreads then
+        PeakThreads := PtrUInt(ThreadCounts[I]);
+        
+    EndThreads := FThreadPool.ThreadCount;
+    
+    // Verify scaling behavior
+    AssertTrue('Thread pool should scale up under load',
+      PeakThreads > StartThreads);
+    AssertTrue('Thread pool should scale down after load',
+      EndThreads < PeakThreads);
+    AssertTrue('Thread count should stay within limits',
+      PeakThreads <= FThreadPool.MaxThreads);
+  finally
+    ThreadCounts.Free;
+    CS.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test30_PriorityQueueStress;
+var
+  CompletionOrder: TList;
+  CS: TCriticalSection;
+  I: Integer;
+  CriticalCount, HighCount: Integer;
+  FirstQuarter: Integer;
+begin
+  CS := TCriticalSection.Create;
+  CompletionOrder := TList.Create;
+  FExecutionOrder := TStringList.Create;  // Initialize execution order list
+  try
+    Randomize;
+    
+    // Queue tasks with different priorities
+    for I := 1 to TasksPerPriority do
+    begin
+      FThreadPool.Queue(TThreadMethod(@Self.PriorityTask));  // Use class method
+      // ... queue other priorities similarly ...
+    end;
+    
+    FThreadPool.WaitForAll;
+    
+    // Verify priority ordering trends
+    // (Note: Perfect ordering is not guaranteed due to concurrent execution)
+    FirstQuarter := CompletionOrder.Count div 4;
+    CriticalCount := 0;
+    HighCount := 0;
+    
+    // Check first quarter of completions
+    for I := 0 to FirstQuarter - 1 do
+    begin
+      if Integer(CompletionOrder[I]) = Ord(tpCritical) then
+        Inc(CriticalCount)
+      else if Integer(CompletionOrder[I]) = Ord(tpHigh) then
+        Inc(HighCount);
+    end;
+    
+    AssertTrue('Higher priority tasks should tend to complete first',
+      CriticalCount + HighCount > FirstQuarter div 2);
+  finally
+    CompletionOrder.Free;
+    CS.Free;
+    FExecutionOrder.Free;
+  end;
 end;
 
 initialization
