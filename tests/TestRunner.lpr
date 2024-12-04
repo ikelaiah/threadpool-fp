@@ -8,13 +8,13 @@ uses
 type
   TMyTestRunner = class(TTestRunner)
   protected
-    procedure RunTest(ATest: TTest); override;
+    procedure RunTest(ATest: TTest);
   end;
 
 procedure TMyTestRunner.RunTest(ATest: TTest);
 begin
   WriteLn('Running test: ', ATest.TestName);
-  inherited RunTest(ATest);
+  RunTest(ATest);
   WriteLn('Test completed: ', ATest.TestName);
 end;
 

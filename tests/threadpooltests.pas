@@ -196,10 +196,15 @@ end;
 
 procedure TThreadPoolTests.Test2_SimpleProcedure;
 begin
+  WriteLn('Test2_SimpleProcedure: Starting');
   FCounter := 0;
+  WriteLn('Test2_SimpleProcedure: Queueing task');
   FThreadPool.Queue(TThreadProcedure(@GlobalIncrementCounter));
+  WriteLn('Test2_SimpleProcedure: Waiting for completion');
   FThreadPool.WaitForAll;
+  WriteLn('Test2_SimpleProcedure: Task completed');
   AssertEquals('Counter should be incremented once', 1, FCounter);
+  WriteLn('Test2_SimpleProcedure: Assertion passed');
 end;
 
 procedure TThreadPoolTests.Test29_ScalingUnderStress;

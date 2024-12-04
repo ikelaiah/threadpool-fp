@@ -268,27 +268,51 @@ end;
 
 procedure TWorkItem.Execute;
 begin
+  WriteLn('WorkItem.Execute: Starting execution');
   try
     FStatus := tsExecuting;
     
     // Execute the task based on type
     case FItemType of
-      witProcedure: if Assigned(FProcedure) then FProcedure;
-      witMethod: if Assigned(FMethod) then FMethod;
+      witProcedure: 
+        begin
+          WriteLn('Executing procedure');
+          if Assigned(FProcedure) then FProcedure;
+        end;
+      witMethod:
+        begin
+          WriteLn('Executing method');
+          if Assigned(FMethod) then FMethod;
+        end;
       witProcedureIndex: if Assigned(FProcedureIndex) then FProcedureIndex(FIndex);
       witMethodIndex: if Assigned(FMethodIndex) then FMethodIndex(FIndex);
     end;
     
     FStatus := tsCompleted;
+    WriteLn('WorkItem.Execute: Completed successfully');
   except
     on E: Exception do
     begin
+      WriteLn('WorkItem.Execute: Failed with error: ', E.Message);
       FStatus := tsFailed;
       FErrorMessage := E.Message;
     end;
   end;
   
   FCompletedEvent.SetEvent;
+  
+  // Decrement work item count
+  TThreadPool(FThreadPool).FWorkItemLock.Enter;
+  try
+    Dec(TThreadPool(FThreadPool).FWorkItemCount);
+    if TThreadPool(FThreadPool).FWorkItemCount = 0 then
+    begin
+      WriteLn('Setting WorkItemEvent - all tasks complete');
+      TThreadPool(FThreadPool).FWorkItemEvent.SetEvent;
+    end;
+  finally
+    TThreadPool(FThreadPool).FWorkItemLock.Leave;
+  end;
 end;
 
 procedure TWorkItem.Cancel;
@@ -731,22 +755,24 @@ begin
   WriteLn('ThreadPool.WaitForAll: Waiting for tasks to complete...');
   WriteLn('  Work item count: ', FWorkItemCount);
   WriteLn('  Thread count: ', FThreadCount);
+  WriteLn('  Queue empty: ', FWorkQueue.IsEmpty);
+  WriteLn('  WorkItemEvent state: ', FWorkItemEvent.WaitFor(0) = wrSignaled);
+  
+  if FWorkItemCount = 0 then
+  begin
+    WriteLn('No work items to wait for');
+    Exit;
+  end;
   
   if FWorkItemEvent.WaitFor(TIMEOUT_MS) <> wrSignaled then
   begin
     WriteLn('ThreadPool.WaitForAll: Timeout after ', TIMEOUT_MS, 'ms');
     WriteLn('  Remaining work items: ', FWorkItemCount);
+    WriteLn('  Queue empty: ', FWorkQueue.IsEmpty);
     raise Exception.Create('Thread pool wait timeout after ' + IntToStr(TIMEOUT_MS) + 'ms');
   end;
   
   WriteLn('ThreadPool.WaitForAll: Tasks completed');
-  
-  // If there was an error, ensure it's fully captured
-  if FErrorEvent.WaitFor(100) = wrSignaled then
-  begin
-    WriteLn('ThreadPool.WaitForAll: Error detected');
-    FErrorEvent.ResetEvent;
-  end;
 end;
 
 procedure TThreadPool.ClearLastError;
