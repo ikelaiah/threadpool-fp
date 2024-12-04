@@ -61,11 +61,14 @@ type
   private
     FThreadPool: TObject;                    // Owner thread pool reference
     FLastError: string;                      // Last error message from this thread
+    FLocalQueue: TThreadSafeQueue;          // Add this line
   protected
     procedure Execute; override;             // Main thread execution loop
   public
     constructor Create(AThreadPool: TObject);
+    destructor Destroy; override;
     property LastError: string read FLastError;  // Access to last error message
+    property LocalQueue: TThreadSafeQueue read FLocalQueue;  // Add this line
   end;
 
   { TThreadPool - Main thread pool manager }
@@ -85,6 +88,9 @@ type
     FErrorEvent: TEvent;                     // Signals error capture
     procedure ClearThreads;                  // Cleanup worker threads
     procedure ClearWorkItems;                // Cleanup pending work items
+    procedure QueueToLeastBusyThread(WorkItem: TWorkItem);
+    function CreateWorkItem: TWorkItem;
+    procedure PrepareForNewWorkItem;
   public
     { Creates a thread pool with specified number of threads
       @param AThreadCount Number of threads to create (0 = CPU count)
@@ -113,6 +119,28 @@ type
     property ThreadCount: Integer read FThreadCount;  // Current thread count
     property LastError: string read FLastError;       // Last error message
     procedure ClearLastError;                         // Reset error state
+  end;
+
+  { TThreadSafeQueue - Thread-safe work queue }
+  // This class provides thread-safe operations for managing work items
+  // It supports both LIFO operations for local queue (Pop from end)
+  // and FIFO operations for work stealing (Steal from front)
+  TThreadSafeQueue = class
+  private
+    FItems: TList;                // Internal list storing work items
+    FLock: TCriticalSection;      // Synchronization object for thread safety
+  public
+    constructor Create;
+    destructor Destroy; override;
+    // Adds a work item to the end of the queue (thread-safe)
+    procedure Push(AItem: TWorkItem);
+    // Removes and returns an item from the end of the queue (LIFO, thread-safe)
+    function Pop: TWorkItem;
+    // Removes and returns an item from the front of the queue (FIFO, thread-safe)
+    // Used by other threads when stealing work
+    function Steal: TWorkItem;
+    // Returns the current number of items in the queue (thread-safe)
+    function Count: Integer;
   end;
 
 var
@@ -167,45 +195,81 @@ begin
   inherited Create(True);  // Create suspended
   FThreadPool := AThreadPool;
   FreeOnTerminate := False;  // Pool manages thread lifetime
+  FLocalQueue := TThreadSafeQueue.Create;  // Initialize local queue
 end;
 
 procedure TWorkerThread.Execute;
 var
   Pool: TThreadPool;
   WorkItem: TWorkItem;
-  List: TList;
+  OtherThread: TWorkerThread;
+  ThreadList: TList;
+  I: Integer;
+  FoundWork: Boolean;
 begin
   Pool := TThreadPool(FThreadPool);
   
-  // Main worker thread loop
+  // Main worker thread loop - continues until thread is terminated
   while not Terminated do
   begin
     WorkItem := nil;
-    // Try to get work from the queue
-    List := Pool.FWorkItems.LockList;
-    try
-      if List.Count > 0 then
-      begin
-        WorkItem := TWorkItem(List[0]);  // Get first item
-        List.Delete(0);                  // Remove from queue
+    FoundWork := False;
+    
+    // Work acquisition priority:
+    // 1. Try local queue first (fastest, no contention)
+    WorkItem := FLocalQueue.Pop;
+    if WorkItem = nil then
+    begin
+      // 2. Try stealing from other threads' queues
+      ThreadList := Pool.FThreads.LockList;
+      try
+        for I := 0 to ThreadList.Count - 1 do
+        begin
+          OtherThread := TWorkerThread(ThreadList[I]);
+          // Only steal from other threads that have work
+          if (OtherThread <> Self) and (OtherThread.LocalQueue.Count > 0) then
+          begin
+            WorkItem := OtherThread.LocalQueue.Steal;
+            if WorkItem <> nil then
+            begin
+              FoundWork := True;
+              Break;
+            end;
+          end;
+        end;
+      finally
+        Pool.FThreads.UnlockList;
       end;
-    finally
-      Pool.FWorkItems.UnlockList;
+      
+      // 3. Finally, try the global queue if no work was stolen
+      if not FoundWork then
+      begin
+        ThreadList := Pool.FWorkItems.LockList;
+        try
+          if ThreadList.Count > 0 then
+          begin
+            WorkItem := TWorkItem(ThreadList[0]);
+            ThreadList.Delete(0);
+          end;
+        finally
+          Pool.FWorkItems.UnlockList;
+        end;
+      end;
     end;
 
     if WorkItem <> nil then
     begin
       try
         WorkItem.Execute;
-       except
+      except
         on E: Exception do
         begin
           Pool.FErrorLock.Enter;
-      try
-        Pool.FLastError := Format('[Thread %d] %s', 
-          [ThreadID, E.Message]);
-        Pool.FErrorEvent.SetEvent;  // Signal that error was captured
-      finally
+          try
+            Pool.FLastError := Format('[Thread %d] %s', 
+              [ThreadID, E.Message]);
+            Pool.FErrorEvent.SetEvent;
+          finally
             Pool.FErrorLock.Leave;
           end;
         end;
@@ -213,8 +277,14 @@ begin
       WorkItem.Free;
     end
     else
-      Sleep(1);
+      Sleep(1);  // No work found, sleep briefly
   end;
+end;
+
+destructor TWorkerThread.Destroy;
+begin
+  FLocalQueue.Free;  // Clean up local queue
+  inherited;
 end;
 
 { TThreadPool }
@@ -323,8 +393,9 @@ procedure TThreadPool.ClearWorkItems;
 var
   List: TList;
   I: Integer;
+  Thread: TWorkerThread;
 begin
-  // Clean up any remaining work items
+  // Clean up any remaining work items in global queue
   List := FWorkItems.LockList;
   try
     for I := 0 to List.Count - 1 do
@@ -332,6 +403,19 @@ begin
     List.Clear;
   finally
     FWorkItems.UnlockList;
+  end;
+
+  // Clean up items in local queues
+  List := FThreads.LockList;
+  try
+    for I := 0 to List.Count - 1 do
+    begin
+      Thread := TWorkerThread(List[I]);
+      while Thread.LocalQueue.Count > 0 do
+        Thread.LocalQueue.Pop.Free;
+    end;
+  finally
+    FThreads.UnlockList;
   end;
 end;
 
@@ -341,24 +425,12 @@ procedure TThreadPool.Queue(AProcedure: TThreadProcedure);
 var
   WorkItem: TWorkItem;
 begin
-  if FShutdown then Exit;  // Don't queue if shutting down
+  if FShutdown then Exit;
   
-  // Update work item count
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;  // Reset completion event
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  // Create and queue work item
-  WorkItem := TWorkItem.Create(Self);
+  WorkItem := CreateWorkItem;
   WorkItem.FProcedure := AProcedure;
   WorkItem.FItemType := witProcedure;
-  
-  FWorkItems.Add(WorkItem);
+  QueueToLeastBusyThread(WorkItem);
 end;
 
 procedure TThreadPool.Queue(AMethod: TThreadMethod);
@@ -367,20 +439,10 @@ var
 begin
   if FShutdown then Exit;
   
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  WorkItem := TWorkItem.Create(Self);
+  WorkItem := CreateWorkItem;
   WorkItem.FMethod := AMethod;
   WorkItem.FItemType := witMethod;
-  
-  FWorkItems.Add(WorkItem);
+  QueueToLeastBusyThread(WorkItem);
 end;
 
 procedure TThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
@@ -389,21 +451,11 @@ var
 begin
   if FShutdown then Exit;
   
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  WorkItem := TWorkItem.Create(Self);
+  WorkItem := CreateWorkItem;
   WorkItem.FProcedureIndex := AProcedure;
   WorkItem.FIndex := AIndex;
   WorkItem.FItemType := witProcedureIndex;
-  
-  FWorkItems.Add(WorkItem);
+  QueueToLeastBusyThread(WorkItem);
 end;
 
 procedure TThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
@@ -412,21 +464,11 @@ var
 begin
   if FShutdown then Exit;
   
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  WorkItem := TWorkItem.Create(Self);
+  WorkItem := CreateWorkItem;
   WorkItem.FMethodIndex := AMethod;
   WorkItem.FIndex := AIndex;
   WorkItem.FItemType := witMethodIndex;
-  
-  FWorkItems.Add(WorkItem);
+  QueueToLeastBusyThread(WorkItem);
 end;
 
 procedure TThreadPool.WaitForAll;
@@ -445,6 +487,131 @@ begin
   finally
     FErrorLock.Leave;
   end;
+end;
+
+{ TThreadSafeQueue }
+
+constructor TThreadSafeQueue.Create;
+begin
+  inherited Create;
+  FItems := TList.Create;
+  FLock := TCriticalSection.Create;
+end;
+
+destructor TThreadSafeQueue.Destroy;
+begin
+  FLock.Free;
+  FItems.Free;
+  inherited;
+end;
+
+procedure TThreadSafeQueue.Push(AItem: TWorkItem);
+begin
+  FLock.Enter;
+  try
+    FItems.Add(AItem);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TThreadSafeQueue.Pop: TWorkItem;
+begin
+  Result := nil;
+  FLock.Enter;
+  try
+    if FItems.Count > 0 then
+    begin
+      Result := TWorkItem(FItems[FItems.Count - 1]);
+      FItems.Delete(FItems.Count - 1);
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TThreadSafeQueue.Steal: TWorkItem;
+begin
+  Result := nil;
+  FLock.Enter;
+  try
+    if FItems.Count > 0 then
+    begin
+      Result := TWorkItem(FItems[0]);  // Steal from the front
+      FItems.Delete(0);
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TThreadSafeQueue.Count: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FItems.Count;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+{ Load balancing implementation }
+procedure TThreadPool.QueueToLeastBusyThread(WorkItem: TWorkItem);
+var
+  ThreadList: TList;
+  LeastBusyThread: TWorkerThread;
+  I: Integer;
+  MinCount: Integer;
+begin
+  // Find the worker thread with the shortest queue
+  ThreadList := FThreads.LockList;
+  try
+    // Start with the first thread as our baseline
+    LeastBusyThread := TWorkerThread(ThreadList[0]);
+    MinCount := LeastBusyThread.LocalQueue.Count;
+    
+    // Compare with all other threads
+    for I := 1 to ThreadList.Count - 1 do
+    begin
+      // If we find a thread with fewer pending items, select it
+      if TWorkerThread(ThreadList[I]).LocalQueue.Count < MinCount then
+      begin
+        LeastBusyThread := TWorkerThread(ThreadList[I]);
+        MinCount := LeastBusyThread.LocalQueue.Count;
+      end;
+    end;
+    
+    // Assign the work item to the thread with the shortest queue
+    // This helps maintain balanced load across all threads
+    LeastBusyThread.LocalQueue.Push(WorkItem);
+  finally
+    FThreads.UnlockList;
+  end;
+end;
+
+{ Work item management helpers }
+procedure TThreadPool.PrepareForNewWorkItem;
+begin
+  // Don't accept new work if shutting down
+  if FShutdown then Exit;
+  
+  // Thread-safe increment of work item count
+  FWorkItemLock.Enter;
+  try
+    Inc(FWorkItemCount);
+    // Reset completion event since we have pending work
+    if FWorkItemCount > 0 then
+      FWorkItemEvent.ResetEvent;
+  finally
+    FWorkItemLock.Leave;
+  end;
+end;
+
+function TThreadPool.CreateWorkItem: TWorkItem;
+begin
+  // Update internal counters and create new work item
+  PrepareForNewWorkItem;
+  Result := TWorkItem.Create(Self);
 end;
 
 initialization
