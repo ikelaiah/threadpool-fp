@@ -318,19 +318,24 @@ var
   Pool: TThreadPool;
   WorkItem: TWorkItem;
 begin
+  WriteLn('Worker thread ', ThreadID, ' starting');
+  
   Pool := TThreadPool(FThreadPool);
   
   while not Terminated do
   begin
-    WorkItem := Pool.FWorkQueue.Dequeue;  // Use Dequeue instead of LockList
+    WorkItem := Pool.FWorkQueue.Dequeue;
     
     if WorkItem <> nil then
     begin
+      WriteLn('Thread ', ThreadID, ' executing work item');
       try
         WorkItem.Execute;
+        WriteLn('Thread ', ThreadID, ' completed work item');
       except
         on E: Exception do
         begin
+          WriteLn('Thread ', ThreadID, ' error: ', E.Message);
           Pool.FErrorLock.Enter;
           try
             Pool.FLastError := Format('[Thread %d] %s', [ThreadID, E.Message]);
@@ -345,6 +350,8 @@ begin
     else
       Sleep(1);
   end;
+  
+  WriteLn('Worker thread ', ThreadID, ' terminating');
 end;
 
 { TLoadMonitorThread }
@@ -718,11 +725,28 @@ begin
 end;
 
 procedure TThreadPool.WaitForAll;
+const
+  TIMEOUT_MS = 30000; // 30 seconds timeout
 begin
-  FWorkItemEvent.WaitFor(INFINITE);  // Wait for all work items to complete
+  WriteLn('ThreadPool.WaitForAll: Waiting for tasks to complete...');
+  WriteLn('  Work item count: ', FWorkItemCount);
+  WriteLn('  Thread count: ', FThreadCount);
+  
+  if FWorkItemEvent.WaitFor(TIMEOUT_MS) <> wrSignaled then
+  begin
+    WriteLn('ThreadPool.WaitForAll: Timeout after ', TIMEOUT_MS, 'ms');
+    WriteLn('  Remaining work items: ', FWorkItemCount);
+    raise Exception.Create('Thread pool wait timeout after ' + IntToStr(TIMEOUT_MS) + 'ms');
+  end;
+  
+  WriteLn('ThreadPool.WaitForAll: Tasks completed');
+  
   // If there was an error, ensure it's fully captured
   if FErrorEvent.WaitFor(100) = wrSignaled then
+  begin
+    WriteLn('ThreadPool.WaitForAll: Error detected');
     FErrorEvent.ResetEvent;
+  end;
 end;
 
 procedure TThreadPool.ClearLastError;
