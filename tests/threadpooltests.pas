@@ -56,6 +56,9 @@ type
     // Variable workload method
     procedure VariableWorkloadMethod;
     
+    // Add this method
+    procedure PriorityTask;
+    
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -64,8 +67,8 @@ type
     procedure Test1_CreateDestroy;
     procedure Test2_SimpleProcedure;
     // ... other implemented tests ...
+    procedure Test29_ScalingUnderStress;
     procedure Test30_PriorityQueueStress;
-    // Remove unimplemented tests 31-35
   end;
 
 const
@@ -199,14 +202,62 @@ begin
   AssertEquals('Counter should be incremented once', 1, FCounter);
 end;
 
-procedure TThreadPoolTests.Test30_PriorityQueueStress;
+procedure TThreadPoolTests.Test29_ScalingUnderStress;
 var
-  CompletionOrder: TList;
+  StartThreads, PeakThreads, EndThreads: Integer;
+  ThreadCounts: TList;
   CS: TCriticalSection;
   I: Integer;
 begin
   CS := TCriticalSection.Create;
-  CompletionOrder := TList.Create;
+  ThreadCounts := TList.Create;
+  try
+    StartThreads := FThreadPool.ThreadCount;
+    
+    // Generate random workload
+    Randomize;
+    for I := 1 to StressIterations do
+    begin
+      // Record thread count before each task
+      CS.Enter;
+      try
+        ThreadCounts.Add(Pointer(NativeUInt(FThreadPool.ThreadCount)));
+      finally
+        CS.Leave;
+      end;
+      
+      FThreadPool.Queue(TThreadMethod(@Self.VariableWorkloadMethod));
+    end;
+    
+    FThreadPool.WaitForAll;
+    
+    // Analyze thread count variations
+    PeakThreads := 0;
+    for I := 0 to ThreadCounts.Count - 1 do
+      if NativeUInt(ThreadCounts[I]) > NativeUInt(PeakThreads) then
+        PeakThreads := NativeUInt(ThreadCounts[I]);
+        
+    EndThreads := FThreadPool.ThreadCount;
+    
+    // Verify scaling behavior
+    AssertTrue('Thread pool should scale up under load',
+      PeakThreads > StartThreads);
+    AssertTrue('Thread pool should scale down after load',
+      EndThreads < PeakThreads);
+    AssertTrue('Thread count should stay within limits',
+      PeakThreads <= FThreadPool.MaxThreads);
+  finally
+    ThreadCounts.Free;
+    CS.Free;
+  end;
+end;
+
+procedure TThreadPoolTests.Test30_PriorityQueueStress;
+var
+  CS: TCriticalSection;
+  I: Integer;
+begin
+  CS := TCriticalSection.Create;
   try
     Randomize;
     
@@ -218,35 +269,144 @@ begin
     
     FThreadPool.WaitForAll;
   finally
-    CompletionOrder.Free;
     CS.Free;
   end;
 end;
 
-procedure TThreadPoolTests.Test29_ScalingUnderStress;
-var
-  StartThreads, PeakThreads, EndThreads: Integer;
-  ThreadCounts: TList;
-  CS: TCriticalSection;
-  I: Integer;
-  
-  procedure RecordThreadCount;
-  begin
-    CS.Enter;
-    try
-      ThreadCounts.Add(Pointer(NativeInt(FThreadPool.ThreadCount)));
-    finally
-      CS.Leave;
-    end;
-  end;
-
+procedure TThreadPoolTests.PriorityTask;
 begin
-  // ... rest of implementation ...
+  Sleep(Random(10));  // Small random delay
+  // Record execution if needed
+  FCS.Enter;
+  try
+    if Assigned(FExecutionOrder) then
+      FExecutionOrder.Add('Task' + IntToStr(Random(100)));
+  finally
+    FCS.Leave;
+  end;
+end;
+
+procedure TThreadPoolTests.VariableWorkloadMethod;
+begin
+  if Random(100) < 50 then
+    Sleep(Random(50))  // Light workload
+  else
+    Sleep(Random(200)); // Heavy workload
+    
+  // Record thread count
+  FCS.Enter;
+  try
+    // Could record metrics here if needed
+  finally
+    FCS.Leave;
+  end;
+end;
+
+procedure TThreadPoolTests.LowPriorityTestTask;
+begin
+  Sleep(100);  // Long running task
+  FCS.Enter;
+  try
+    if Assigned(FExecutionOrder) then
+      FExecutionOrder.Add('Low');
+  finally
+    FCS.Leave;
+  end;
+end;
+
+procedure TThreadPoolTests.NormalPriorityTestTask;
+begin
+  Sleep(50);
+  FCS.Enter;
+  try
+    if Assigned(FExecutionOrder) then
+      FExecutionOrder.Add('Normal');
+  finally
+    FCS.Leave;
+  end;
+end;
+
+procedure TThreadPoolTests.HighPriorityTestTask;
+begin
+  Sleep(25);
+  FCS.Enter;
+  try
+    if Assigned(FExecutionOrder) then
+      FExecutionOrder.Add('High');
+  finally
+    FCS.Leave;
+  end;
+end;
+
+procedure TThreadPoolTests.CriticalPriorityTestTask;
+begin
+  Sleep(10);  // Shortest duration for highest priority
+  FCS.Enter;
+  try
+    if Assigned(FExecutionOrder) then
+      FExecutionOrder.Add('Critical');
+  finally
+    FCS.Leave;
+  end;
+end;
+
+procedure TThreadPoolTests.LongRunningTaskMethod;
+begin
+  Sleep(TaskDuration);  // Use the constant defined at unit level
+end;
+
+procedure TThreadPoolTests.DependencyTestTask1;
+begin
+  FCS.Enter;
+  try
+    AssertEquals('Step 1 should execute first', 0, FStep);
+    FStep := 1;
+  finally
+    FCS.Leave;
+  end;
+  Sleep(50);
+end;
+
+procedure TThreadPoolTests.DependencyTestTask2;
+begin
+  FCS.Enter;
+  try
+    AssertEquals('Step 2 should execute after Step 1', 1, FStep);
+    FStep := 2;
+  finally
+    FCS.Leave;
+  end;
+  Sleep(50);
+end;
+
+procedure TThreadPoolTests.DependencyTestTask3;
+begin
+  FCS.Enter;
+  try
+    AssertEquals('Step 3 should execute after Step 2', 2, FStep);
+    FStep := 3;
+  finally
+    FCS.Leave;
+  end;
+end;
+
+procedure TThreadPoolTests.CancellationTestTask;
+var
+  I: Integer;
+begin
+  for I := 1 to 10 do
+  begin
+    if FThreadPool.Terminated then
+      Exit;
+    Sleep(100);
+  end;
   
-  // When reading:
-  for I := 0 to ThreadCounts.Count - 1 do
-    if NativeInt(ThreadCounts[I]) > PeakThreads then
-      PeakThreads := NativeInt(ThreadCounts[I]);
+  FCS.Enter;
+  try
+    // Set some class field to indicate completion if needed
+  finally
+    FCS.Leave;
+  end;
 end;
 
 initialization
