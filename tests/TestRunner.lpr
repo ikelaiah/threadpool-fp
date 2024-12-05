@@ -3,7 +3,7 @@ program TestRunner;
 {$mode objfpc}{$H+}
 
 uses
-  Classes, consoletestrunner, ThreadPoolTests;
+  Classes, consoletestrunner, ThreadPool.Simple.Tests;
 
 type
 
