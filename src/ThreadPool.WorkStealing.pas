@@ -515,8 +515,19 @@ begin
     begin
       Distributed := Worker.LocalDeque.TryPush(AWorkItem);
       if Distributed then
-        Worker.SignalWork;
-    end;
+      begin
+        WriteLn('DistributeWork: Work item pushed to worker queue');
+        if Assigned(FWorkEvent) then
+        begin
+          WriteLn('DistributeWork: Signaling work event');
+          FWorkEvent.SetEvent;
+        end;
+      end
+      else
+        WriteLn('DistributeWork: Failed to push work item');
+    end
+    else
+      WriteLn('DistributeWork: No valid worker found');
   finally
     FWorkLock.Leave;
   end;
@@ -592,6 +603,7 @@ begin
   FWorkLock.Enter;
   try
     Inc(FWorkCount);
+    WriteLn(Format('Queue: Work count increased to %d', [FWorkCount]));
     DistributeWork(WorkItem);
   finally
     FWorkLock.Leave;
@@ -651,20 +663,23 @@ end;
 
 procedure TWorkStealingPool.WaitForAll;
 begin
+  WriteLn('WaitForAll: Starting wait');
   FWorkLock.Enter;
   try
     while FWorkCount > 0 do
     begin
+      WriteLn(Format('WaitForAll: Still waiting, work count = %d', [FWorkCount]));
       FWorkLock.Leave;
       try
-        // Wait for work event with timeout to prevent deadlock
+        WriteLn('WaitForAll: About to wait for event');
         FWorkEvent.WaitFor(100);
-        // Reset event for next wait
+        WriteLn('WaitForAll: Event wait completed');
         FWorkEvent.ResetEvent;
       finally
         FWorkLock.Enter;
       end;
     end;
+    WriteLn('WaitForAll: All work completed');
   finally
     FWorkLock.Leave;
   end;
@@ -771,8 +786,12 @@ begin
   FWorkLock.Enter;
   try
     Dec(FWorkCount);
+    WriteLn(Format('DecrementWorkCount: Work count decreased to %d', [FWorkCount]));
     if FWorkCount = 0 then
+    begin
+      WriteLn('DecrementWorkCount: Signaling work completion');
       FWorkEvent.SetEvent;  // Signal completion
+    end;
   finally
     FWorkLock.Leave;
   end;
