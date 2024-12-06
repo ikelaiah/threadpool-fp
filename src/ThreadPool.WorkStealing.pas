@@ -9,6 +9,9 @@ uses
   ThreadPool.Types;
 
 type
+  { Custom exceptions }
+  EThreadPool = class(Exception);
+
   { Work item implementations }
   TWorkItemBase = class(TInterfacedObject, IWorkItem)
   protected
@@ -414,33 +417,41 @@ end;
 
 constructor TWorkStealingPool.Create(AThreadCount: Integer = 0);
 var
-  I:Integer;
+  I: Integer;
+  DesiredThreadCount: Integer;
 begin
-  inherited Create(AThreadCount);
+  // Calculate desired thread count first
+  if AThreadCount <= 0 then
+    DesiredThreadCount := TThread.ProcessorCount
+  else
+    DesiredThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
+  DesiredThreadCount := Max(DesiredThreadCount, 4);  // Minimum of 4 threads
   
-  // Initialize synchronization objects before creating threads
+  // Call inherited constructor first with the calculated thread count
+  inherited Create(DesiredThreadCount);
+  
+  // Initialize synchronization objects
   FWorkLock := TCriticalSection.Create;
   FErrorLock := TCriticalSection.Create;
-  FWorkEvent := TEvent.Create(nil, True, False, ''); // Manual reset event
+  FWorkEvent := TEvent.Create(nil, True, False, '');
+  FLastError := '';
   
   try
-    SetLength(FWorkers, GetThreadCount);
+    SetLength(FWorkers, DesiredThreadCount);
     FWorkCount := 0;
     
-    // Create workers after all synchronization objects are ready
+    // Create workers
     for I := 0 to High(FWorkers) do
     begin
       FWorkers[I] := TWorkStealingThread.Create(Self);
       try
         FWorkers[I].Start;
       except
-        // Clean up on failure
         FWorkers[I].Free;
         raise;
       end;
     end;
   except
-    // Clean up on any failure
     for I := 0 to High(FWorkers) do
       if Assigned(FWorkers[I]) then
         FWorkers[I].Free;
@@ -454,25 +465,45 @@ end;
 destructor TWorkStealingPool.Destroy;
 var
   I: Integer;
+  WorkerCount: Integer;
 begin
-  // Signal all threads to terminate
-  for I := 0 to High(FWorkers) do
-    if Assigned(FWorkers[I]) then
-      FWorkers[I].Terminate;
-      
-  // Wait for threads to finish
-  for I := 0 to High(FWorkers) do
-    if Assigned(FWorkers[I]) then
+  try
+    // Signal termination first
+    if Assigned(FWorkLock) then
     begin
-      FWorkers[I].WaitFor;
-      FWorkers[I].Free;
+      FWorkLock.Enter;
+      try
+        for I := Low(FWorkers) to High(FWorkers) do
+          if Assigned(FWorkers[I]) then
+            FWorkers[I].Terminate;
+      finally
+        FWorkLock.Leave;
+      end;
     end;
-    
-  // Clean up synchronization objects
-  FWorkLock.Free;
-  FErrorLock.Free;
-  FWorkEvent.Free;
-  
+
+    // Wait for and free threads
+    WorkerCount := Length(FWorkers);
+    if WorkerCount > 0 then
+      for I := 0 to WorkerCount - 1 do
+        if Assigned(FWorkers[I]) then
+        begin
+          try
+            FWorkers[I].WaitFor;
+            FWorkers[I].Free;
+          except
+            // Ignore cleanup errors
+          end;
+        end;
+
+    // Clean up synchronization objects
+    FWorkEvent.Free;
+    FWorkLock.Free;
+    FErrorLock.Free;
+  except
+    // Log or handle cleanup errors
+    WriteLn('Error during thread pool cleanup');
+  end;
+
   inherited;
 end;
 
@@ -503,20 +534,28 @@ var
   I, MinSize, CurrentSize: Integer;
   MinIndex: Integer;
 begin
+  if Length(FWorkers) = 0 then
+    raise EThreadPool.Create('No worker threads available');
+    
   MinIndex := 0;
   MinSize := High(Integer);
   
   for I := 0 to High(FWorkers) do
   begin
-    CurrentSize := FWorkers[I].LocalDeque.Size;
-    if CurrentSize < MinSize then
+    if Assigned(FWorkers[I]) then
     begin
-      MinSize := CurrentSize;
-      MinIndex := I;
+      CurrentSize := FWorkers[I].LocalDeque.Size;
+      if CurrentSize < MinSize then
+      begin
+        MinSize := CurrentSize;
+        MinIndex := I;
+      end;
     end;
   end;
   
   Result := FWorkers[MinIndex];
+  if not Assigned(Result) then
+    raise EThreadPool.Create('No valid worker thread found');
 end;
 
 procedure TWorkStealingPool.HandleError(const AError: string);

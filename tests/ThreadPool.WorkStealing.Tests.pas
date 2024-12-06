@@ -41,15 +41,31 @@ implementation
 
 procedure TWorkStealingPoolTests.SetUp;
 begin
-  FPool := TWorkStealingPool.Create(4);  // Use minimum thread count
-  FCounter := 0;
-  FCounterLock := TCriticalSection.Create;
+  try
+    FPool := TWorkStealingPool.Create(4);  // Use minimum thread count
+    FCounter := 0;
+    FCounterLock := TCriticalSection.Create;
+  except
+    on E: Exception do
+    begin
+      WriteLn('Exception in SetUp: ', E.Message);
+      raise;
+    end;
+  end;
 end;
 
 procedure TWorkStealingPoolTests.TearDown;
 begin
-  FPool.Free;
-  FCounterLock.Free;
+  try
+    FPool.Free;
+    FCounterLock.Free;
+  except
+    on E: Exception do
+    begin
+      WriteLn('Exception in TearDown: ', E.Message);
+      raise;
+    end;
+  end;
 end;
 
 procedure TWorkStealingPoolTests.IncrementCounter;
@@ -81,6 +97,7 @@ procedure TWorkStealingPoolTests.Test01_CreateDestroy;
 var
   Pool: TWorkStealingPool;
 begin
+  WriteLn('Test01_CreateDestroy');
   Pool := TWorkStealingPool.Create;
   try
     AssertEquals('Default thread count should match processor count', 
@@ -95,14 +112,17 @@ begin
   finally
     Pool.Free;
   end;
+  WriteLn('Test01_CreateDestroy completed');
 end;
 
 procedure TWorkStealingPoolTests.Test02_QueueSimpleProcedure;
 begin
+  WriteLn('Test02_QueueSimpleProcedure');
   FPool.Queue(@IncrementCounter);
   FPool.WaitForAll;
   
   AssertEquals('Counter should be incremented once', 1, FCounter);
+  WriteLn('Test02_QueueSimpleProcedure completed');
 end;
 
 procedure TWorkStealingPoolTests.Test03_QueueMultipleProcedures;
@@ -110,6 +130,7 @@ var
   I: Integer;
   ExpectedCount: Integer;
 begin
+  WriteLn('Test03_QueueMultipleProcedures');
   ExpectedCount := 100;
   
   for I := 1 to ExpectedCount do
@@ -119,6 +140,7 @@ begin
   
   AssertEquals('Counter should match number of queued procedures', 
     ExpectedCount, FCounter);
+  WriteLn('Test03_QueueMultipleProcedures completed');
 end;
 
 procedure TWorkStealingPoolTests.Test04_QueueWithIndex;
@@ -126,6 +148,7 @@ var
   I: Integer;
   ExpectedSum: Integer;
 begin
+  WriteLn('Test04_QueueWithIndex');
   ExpectedSum := 0;
   
   for I := 1 to 10 do
@@ -137,6 +160,7 @@ begin
   FPool.WaitForAll;
   
   AssertEquals('Sum should match expected total', ExpectedSum, FCounter);
+  WriteLn('Test04_QueueWithIndex completed');
 end;
 
 procedure TWorkStealingPoolTests.Test05_WorkStealing;
@@ -145,6 +169,7 @@ var
   StartTime: TDateTime;
   UnbalancedPool: TWorkStealingPool;
 begin
+  WriteLn('Test05_WorkStealing');
   UnbalancedPool := TWorkStealingPool.Create(4);
   try
     // Queue many tasks to a single worker
@@ -163,22 +188,26 @@ begin
   finally
     UnbalancedPool.Free;
   end;
+  WriteLn('Test05_WorkStealing completed');
 end;
 
 procedure TWorkStealingPoolTests.Test06_ExceptionHandling;
 begin
+  WriteLn('Test06_ExceptionHandling');
   FPool.Queue(@RaiseException);
   FPool.WaitForAll;
   
   AssertTrue('Exception should be captured', FPool.LastError <> '');
   AssertTrue('Error should include thread ID', 
     Pos('Thread', FPool.LastError) > 0);
+  WriteLn('Test06_ExceptionHandling completed');
 end;
 
 procedure TWorkStealingPoolTests.Test07_StressTest;
 var
   I: Integer;
 begin
+  WriteLn('Test07_StressTest');
   for I := 1 to 10000 do
   begin
     if I mod 2 = 0 then
@@ -191,6 +220,7 @@ begin
   
   AssertTrue('Counter should be greater than zero', FCounter > 0);
   AssertEquals('No errors should occur', '', FPool.LastError);
+  WriteLn('Test07_StressTest completed');
 end;
 
 procedure TWorkStealingPoolTests.Test08_ConcurrentQueuing;
@@ -198,6 +228,7 @@ var
   I: Integer;
   Pools: array[0..3] of TWorkStealingPool;
 begin
+  WriteLn('Test08_ConcurrentQueuing');
   // Create multiple pools queuing work simultaneously
   for I := 0 to High(Pools) do
     Pools[I] := TWorkStealingPool.Create(4);
@@ -219,12 +250,14 @@ begin
     for I := 0 to High(Pools) do
       Pools[I].Free;
   end;
+  WriteLn('Test08_ConcurrentQueuing completed');
 end;
 
 procedure TWorkStealingPoolTests.Test09_ThreadCount;
 var
   Pool: TWorkStealingPool;
 begin
+  WriteLn('Test09_ThreadCount');
   // Test minimum thread count
   Pool := TWorkStealingPool.Create(2);
   try
@@ -241,10 +274,12 @@ begin
   finally
     Pool.Free;
   end;
+  WriteLn('Test09_ThreadCount completed');
 end;
 
 procedure TWorkStealingPoolTests.Test10_ClearErrors;
 begin
+  WriteLn('Test10_ClearErrors');
   FPool.Queue(@RaiseException);
   FPool.WaitForAll;
   
@@ -256,6 +291,7 @@ begin
   FPool.Queue(@IncrementCounter);
   FPool.WaitForAll;
   AssertEquals('Should continue working after error', 1, FCounter);
+  WriteLn('Test10_ClearErrors completed');
 end;
 
 initialization
