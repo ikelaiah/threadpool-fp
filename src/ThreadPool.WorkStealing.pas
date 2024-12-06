@@ -122,7 +122,7 @@ type
   end;
 
   { Work-stealing thread pool implementation }
-  TWorkStealingPool = class(TThreadPoolBase)
+  TWorkStealingPool = class(TThreadPoolBase, IThreadPool)
   private
     FWorkers: array of TWorkStealingThread;
     FWorkCount: Integer;
@@ -137,18 +137,18 @@ type
     constructor Create(AThreadCount: Integer = 0); override;
     destructor Destroy; override;
     
+    { IThreadPool implementation }
     procedure Queue(AProcedure: TThreadProcedure); override;
     procedure Queue(AMethod: TThreadMethod); override;
     procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); override;
     procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); override;
     procedure WaitForAll; override;
     procedure ClearLastError; override;
-    
-    function GetThreadCount: Integer; override;
     function GetLastError: string; override;
+    function GetThreadCount: Integer; override;
     
-    property ThreadCount: Integer read GetThreadCount;
     property LastError: string read GetLastError;
+    property ThreadCount: Integer read GetThreadCount;
   end;
 
 function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
@@ -487,7 +487,7 @@ procedure TWorkStealingPool.HandleError(const AError: string);
 begin
   FErrorLock.Enter;
   try
-    FLastError := AError;
+    inherited SetLastError(AError);
   finally
     FErrorLock.Leave;
   end;
