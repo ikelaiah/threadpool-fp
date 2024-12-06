@@ -268,10 +268,13 @@ begin
 end;
 
 procedure TWorkStealingDeque.Clear;
+var
+  DummyItem: IWorkItem;
 begin
   FCasLock.Enter;
   try
-    while TryPop(IWorkItem(nil)) do ;
+    DummyItem := nil;  // Initialize the interface variable
+    while TryPop(DummyItem) do ;
     FBottom := 0;
     FTop := 0;
   finally
@@ -330,7 +333,6 @@ function TWorkStealingThread.TryStealWork: Boolean;
 var
   WorkItem: IWorkItem;
   OtherThread: TWorkStealingThread;
-  Workers: TList;
   I: Integer;
 begin
   Result := False;
@@ -556,7 +558,11 @@ end;
 
 function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
 begin
-  Result := InterlockedCompareExchange(Target, NewValue, OldValue) = OldValue;
+  {$IFDEF CPU64}
+  Result := InterlockedCompareExchange(LongInt(Target), LongInt(NewValue), LongInt(OldValue)) = LongInt(OldValue);
+  {$ELSE}
+  Result := InterlockedCompareExchange(LongWord(Target), LongWord(NewValue), LongWord(OldValue)) = LongWord(OldValue);
+  {$ENDIF}
 end;
 
 end.
