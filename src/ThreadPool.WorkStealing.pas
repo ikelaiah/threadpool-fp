@@ -317,6 +317,16 @@ begin
         on E: Exception do
           TWorkStealingPool(FPool).HandleError(Format('Thread %d: %s', [ThreadID, E.Message]));
       end;
+      // Decrement work count after completion
+      with TWorkStealingPool(FPool) do
+      begin
+        FWorkLock.Enter;
+        try
+          Dec(FWorkCount);
+        finally
+          FWorkLock.Leave;
+        end;
+      end;
     end
     else
     begin
@@ -406,16 +416,25 @@ constructor TWorkStealingPool.Create(AThreadCount: Integer);
 var
   I: Integer;
 begin
-  inherited Create(AThreadCount);
-  
-  // Initialize synchronization objects
+  // Initialize synchronization objects first
   FWorkLock := TCriticalSection.Create;
   FWorkEvent := TEvent.Create(nil, True, False, '');
   FErrorLock := TCriticalSection.Create;
   FLastError := '';
   
+  // Set initial thread count and create array
+  if AThreadCount <= 0 then
+    AThreadCount := TThread.ProcessorCount
+  else
+    AThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
+  AThreadCount := Max(AThreadCount, 4);  // Minimum of 4 threads
+  
+  SetLength(FWorkers, AThreadCount);
+  
+  // Now call inherited with the validated thread count
+  inherited Create(AThreadCount);
+  
   // Create worker threads
-  SetLength(FWorkers, GetThreadCount);
   for I := 0 to High(FWorkers) do
     FWorkers[I] := TWorkStealingThread.Create(Self);
     
@@ -450,13 +469,12 @@ procedure TWorkStealingPool.DistributeWork(AWorkItem: IWorkItem);
 var
   Worker: TWorkStealingThread;
 begin
-  Worker := FindLeastLoadedWorker;
-  Worker.LocalDeque.TryPush(AWorkItem);
-  Worker.SignalWork;
-  
   FWorkLock.Enter;
   try
     Inc(FWorkCount);
+    Worker := FindLeastLoadedWorker;
+    Worker.LocalDeque.TryPush(AWorkItem);
+    Worker.SignalWork;
   finally
     FWorkLock.Leave;
   end;
