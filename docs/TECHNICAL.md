@@ -6,19 +6,32 @@
 ```mermaid
 graph TD
     A1[Application] --> G[GlobalThreadPool]
-    A2[Application] --> C1[Custom ThreadPool]
+    A2[Application] --> S[TSimpleThreadPool]
+    
+    subgraph "Interfaces"
+        ITP[IThreadPool]
+        IWT[IWorkerThread]
+        IWI[IWorkItem]
+        
+        G & S -.->|implements| ITP
+        W1 & W2 & Wn -.->|implements| IWT
+        WI -.->|implements| IWI
+    end
     
     subgraph "Thread Pool"
-        G & C1 --> |owns| TL[TThreadList]
-        G & C1 --> |owns| WQ[TThreadList<br>Work Queue]
-        G & C1 --> |owns| CS[TCriticalSection<br>Work Item Count]
-        G & C1 --> |owns| EV[TEvent<br>Completion Signal]
+        G & S --> |owns| TL[TThreadList]
+        G & S --> |owns| WQ[TThreadList<br>Work Queue]
+        G & S --> |owns| CS[TCriticalSection<br>Work Item Count]
+        G & S --> |owns| EV[TEvent<br>Completion Signal]
+        G & S --> |owns| EL[TCriticalSection<br>Error Lock]
+        G & S --> |owns| EE[TEvent<br>Error Event]
         
         TL --> |contains| W1[Worker Thread 1]
         TL --> |contains| W2[Worker Thread 2]
         TL --> |contains| Wn[Worker Thread n]
         
         W1 & W2 & Wn -->|pop & execute| WQ
+        W1 & W2 & Wn -->|report errors| EL
     end
     
     subgraph "Work Items"
@@ -32,7 +45,25 @@ graph TD
 
 ## Core Components
 
-### TThreadPool
+### Thread Pool Types
+
+1. **GlobalThreadPool**
+   - Singleton instance for simple usage
+   - Automatically initialized on first use
+   - Uses default thread count based on ProcessorCount
+   - Suitable for most applications
+   - Thread-safe by design
+
+2. **TSimpleThreadPool**
+   - Custom instance creation with configurable thread count
+   - Multiple independent pools possible
+   - Full control over pool lifetime
+   - Same thread safety guarantees as GlobalThreadPool
+   - Useful for specialized threading scenarios
+
+Both types share the same underlying implementation and provide identical thread safety guarantees and features. The main difference is in initialization and lifetime management.
+
+### TSimpleThreadPool
 
 Main thread pool manager that:
 
@@ -42,6 +73,8 @@ Main thread pool manager that:
 - Signals completion using `TEvent`
 - Provides thread-safe queueing methods
 - Handles shutdown and cleanup
+- Implements comprehensive error handling
+- Supports thread count configuration
 
 ### TWorkerThread
 
@@ -69,25 +102,31 @@ Task wrapper that:
 
 ## Usage Patterns
 
-### 1. Simple Procedure
+### 1. Basic Operations
 
 ```pascal
+// Queue a simple procedure
 GlobalThreadPool.Queue(@SimpleProcedure);
+// Queue a method
+GlobalThreadPool.Queue(@MyObject.MyMethod);
+// Queue with index
+GlobalThreadPool.Queue(@ProcessItem, 5);
 ```
 
-### 2. Method of Object
+### 2. Error Handling
 
 ```pascal
-GlobalThreadPool.Queue(@SimpleProcedure);
+try
+  GlobalThreadPool.Queue(@MyProcedure);
+  GlobalThreadPool.WaitForAll;
+  if GlobalThreadPool.LastError <> '' then
+    WriteLn('Error occurred: ', GlobalThreadPool.LastError);
+finally
+  GlobalThreadPool.Free;
+end;
 ```
 
 
-### 3. Indexed Operations
-
-
-```pascal
-GlobalThreadPool.Queue(@ProcessItem, itemIndex);
-```
 
 ## Example Implementation
 
@@ -111,54 +150,21 @@ The implementation uses several synchronization mechanisms:
 
 ## Thread Management
 
-### Thread Count Safety
+### Thread Count Rules
+1. Minimum: 4 threads (enforced)
+2. Maximum: 2× ProcessorCount (strictly enforced)
+3. Default: ProcessorCount when count = 0 (verified by Test11_ThreadCount)
+4. Auto-adjustment of invalid values:
+   - Values < 4 are increased to 4
+   - Values > 2× ProcessorCount are reduced
+   - Zero defaults to ProcessorCount
 
-The thread pool implements several safety measures for thread count:
-
-1. **Minimum Threads**
-   - Enforces minimum of 4 threads
-   - Ensures basic parallel processing capability
-   - Prevents ineffective thread pools
-
-2. **Maximum Threads**
-   - Limits to 2× ProcessorCount
-   - Prevents system resource exhaustion
-   - Scales reasonably with available processors
-
-3. **Default Behavior**
-   - Uses ProcessorCount when count ≤ 0
-   - Automatically adjusts out-of-range values
-   - Maintains safe operating parameters
-
-### Thread Count Initialization
-
-The default thread count uses `TThread.ProcessorCount`, but this has important limitations:
-
-```pascal
-constructor TThreadPool.Create(AThreadCount: Integer = 0);
-begin
-  // Safety limits:
-  // - Minimum: 4 threads
-  // - Maximum: 2× ProcessorCount
-  // - Default: ProcessorCount (when ≤ 0)
-  if AThreadCount <= 0 then
-    AThreadCount := TThread.ProcessorCount
-  else
-    AThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
-  AThreadCount := Max(AThreadCount, 4);
-
-  // -- other snippet
-
-end;
-```
-
-### Implementation Notes
-
-- Thread creation is managed in constructor
-- All threads start suspended
-- Explicit start after initialization
-- Clean shutdown in destructor
-- Thread-safe collections for management
+### Performance Considerations
+1. Efficient thread reuse (verified by stress tests)
+2. Safe concurrent queue access
+3. Protected counter operations
+4. Clean exception handling
+5. Proper resource cleanup
 
 
 ### System Processor Count Detection Limitations
@@ -185,26 +191,14 @@ The thread pool implements a robust exception handling system:
 - Thread ID is included in error messages
 - Last error is accessible via `LastError` property
 
-### Implementation Details
-
-```pascal
-// Worker thread exception handling
-try
-  WorkItem.Execute;
-except
-  on E: Exception do
-    // Thread-safe error capture
-    ThreadPool.StoreError(Format('[Thread %d] %s', 
-      [ThreadID, E.Message]));
-end;
-```
 
 ### Error Management
 
 - Thread-safe error storage using critical sections
-- Error state can be cleared via `ClearLastError`
-- Pool continues operating after exceptions
+- Error state can be cleared via `ClearLastError` (Test21_ExceptionAfterClear)
+- Pool continues operating after exceptions (Test20_MultipleExceptions)
 - Each new error overwrites the previous one
+- Error messages include thread identification (Test19_ExceptionMessage)
 
 ### Best Practices
 
@@ -213,8 +207,9 @@ end;
 3. Consider logging persistent errors
 4. Use thread IDs to track error sources
 
+
 ### Limitations
-- Only stores most recent error
-- No built-in error event handling
-- No exception propagation to main thread
-- No error queue implementation
+- Only the most recent error is stored
+- No built-in mechanism for error event handling
+- Exceptions are not propagated to the main thread
+- No implementation of an error queue

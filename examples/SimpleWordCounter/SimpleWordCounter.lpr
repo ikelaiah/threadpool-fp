@@ -1,9 +1,9 @@
-program WordCounter;
+program SimpleWordCounter;
 
 {$mode objfpc}{$H+}{$J-}
 
 uses
-  Classes, SysUtils, ThreadPool, syncobjs;
+  Classes, SysUtils, ThreadPool.Simple, syncobjs;
 
 const
   SampleText = 'The quick brown fox jumps over the lazy dog! ' +
@@ -79,7 +79,7 @@ begin
       end;
     end;
     
-    // Store result
+    // Store result -- enter and leave lock here!
     CountLock.Enter;
     try
       FileCounts[fileIndex] := WordCount;
@@ -143,4 +143,8 @@ begin
   finally
     CountLock.Free;
   end;
+
+  // Pause console
+  WriteLn('Press enter to quit ...');
+  ReadLn;
 end.

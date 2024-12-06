@@ -25,11 +25,30 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 
 ## ✨ Features
 
-- 🔄 Automatic thread count management
-- 🎯 Multiple task types support (procedures, methods, indexed variants)
+- 🔄 **Thread Count Configuration**
+  - Set a minimum of 4 threads for optimal parallelism
+  - Set a maximum of 2× `ProcessorCount` to prevent overload
+  - Thread count is fixed upon initialization
+  
+- 🎯 Multiple task types support
+  - Simple procedures: `GlobalThreadPool.Queue(@MyProc)`
+  - Object methods: `GlobalThreadPool.Queue(@MyObject.MyMethod)`
+  - Indexed variants: `GlobalThreadPool.Queue(@MyProc, Index)`
+  
 - 🔒 Thread-safe operation
-- ⚠️ Exception handling and error reporting
-- 🌍 Global pool instance for convenience
+  - Built-in synchronization
+  - Safe resource sharing
+  - Protected error handling
+  
+- ⚠️ Exception handling
+  - Thread-specific error capture
+  - Error messages with thread IDs
+  - Pool continues after exceptions
+  
+- 🌍 Convenience
+  - Global pool instance
+  - Custom pool creation
+  - Simple API
 
 > [!NOTE]
 > The thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for important details and limitations.
@@ -37,8 +56,12 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 ## 🏃 Quick Start
 
 ```pascal
+program QuickStart;
+
+{$mode objfpc}{$H+}{$J-}
+
 uses
-  ThreadPool;
+  Classes, SysUtils, ThreadPool.Simple;  // Note the .Simple unit suffix
 
 // Simple parallel processing
 procedure ProcessItem(index: Integer);
@@ -46,6 +69,8 @@ begin
   WriteLn('Processing item: ', index);
 end;
 
+var
+  i: Integer;
 begin
   // Queue multiple items for parallel processing
   for i := 1 to 5 do
@@ -53,31 +78,42 @@ begin
     
   // Wait for all tasks to complete
   GlobalThreadPool.WaitForAll;
-end;
+end.
 ```
 
 ## ⚠️ Error Handling
 
-
 ```pascal
+program ErrorHandling;
+
+{$mode objfpc}{$H+}{$J-}
+
 uses
-  ThreadPool;
+  Classes, SysUtils, ThreadPool.Simple;
+
+procedure RiskyProcedure;
+begin
+  raise Exception.Create('Something went wrong!');
+end;
 
 var
-  Pool: TThreadPool;
-
+  Pool: TSimpleThreadPool;
 begin
-  Pool := TThreadPool.Create(4); // Create with 4 threads
+  Pool := TSimpleThreadPool.Create(4); // Create with 4 threads
   try
-    Pool.Queue(@MyProcedure);
+    Pool.Queue(@RiskyProcedure);
     Pool.WaitForAll;
-    // Check for errors
+    
+    // Check for errors after completion
     if Pool.LastError <> '' then
+    begin
       WriteLn('An error occurred: ', Pool.LastError);
+      Pool.ClearLastError;  // Clear for reuse if needed
+    end;
   finally
     Pool.Free;
   end;
-end;
+end.
 ```
 
 ### 💡 Tips
@@ -93,9 +129,9 @@ end;
 
 ```pascal
 var
-  CustomPool: TThreadPool;
+  CustomPool: TSimpleThreadPool;
 begin
-  CustomPool := TThreadPool.Create(4);  // Minimum allowed threads
+  CustomPool := TSimpleThreadPool.Create(4);  // Minimum allowed threads
   try
     CustomPool.Queue(@MyProcedure);
     CustomPool.WaitForAll;
@@ -105,17 +141,50 @@ begin
 end;
 ```
 
+### 🛠️ When to Use Each 
+    
+**GlobalThreadPool**
+- Simple parallel tasks
+- One-off parallel operations
+- When default thread count is sufficient
+    
+**TSimpleThreadPool**
+- Custom thread count needs
+- Multiple independent thread pools
+- Advanced error handling needs
+- When you need control over pool lifetime
+
+
 ## 📚 Examples
 
-1. 📝 **Word Counter** - Parallel text file processing
-2. 🔢 **Square Numbers** - Basic number crunching
-3. 🎓 **Simple Demo** - Various usage patterns
+1. 🎓 **Simple Demo** (`examples/SimpleDemo/SimpleDemo.lpr`)
+   - Basic usage patterns with GlobalThreadPool
+   - Demonstrates procedures, methods, and indexed variants
+   - Shows proper object lifetime management
+
+2. 🔢 **Thread Pool Demo** (`examples/SimpleThreadpoolDemo/SimpleThreadpoolDemo.lpr`)
+   - Thread management with custom pools
+   - Thread-safe counter operations
+   - Error handling patterns
+   - Resource cleanup
+
+3. 📝 **Simple Word Counter** (`examples/SimpleWordCounter/SimpleWordCounter.lpr`)
+   - Parallel text file processing
+   - Thread-safe counter operations
+   - File I/O with multiple threads
+
+
+4. 🔢 **Square Numbers** (`examples/SimpleSquareNumbers/SimpleSquareNumbers.lpr`)
+   - Basic number crunching
+   - Array processing in parallel
+   - Performance comparison
+
 
 ## 🛠️ Installation
 
 1. Add the `src` directory to your project's search path
-2. Add `ThreadPool` to your uses clause
-3. Start using the `GlobalThreadPool` instance
+2. Add `ThreadPool.Simple` to your uses clause
+3. Start using the `GlobalThreadPool` instance or create `TSimpleThreadPool` instances
 
 ## ⚙️ Requirements
 
@@ -131,9 +200,10 @@ end;
 
 ## 🧪 Testing
 
-1. Go to `tests/` directory
+1. Go to the `tests/` directory
 2. Open `TestRunner.lpi` in Lazarus IDE and compile
 3. Run `./TestRunner.exe -a -p --format=plain` to see the test results.
+4. Ensure all tests pass to verify the library's functionality
 
 ## 🧵 Thread Management
 
@@ -157,11 +227,14 @@ The `GlobalThreadPool` creates threads with these safety limits:
 ## 👏 Acknowledgments
 
 Special thanks to the Free Pascal and Lazarus communities and the creators of the threading libraries mentioned above for inspiration!
+- [Mormot2 Threading Library](https://github.com/synopse/mORMot2)
+- [ezthreads](https://github.com/mr-highball/ezthreads)
+- [OmniThreadLibrary](https://github.com/gabr42/OmniThreadLibrary)
 
 
 ## 📄 License
-MIT License
 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) file for details.
 
 ---
 

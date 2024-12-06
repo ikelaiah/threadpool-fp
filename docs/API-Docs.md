@@ -1,5 +1,20 @@
 ## 📚 API Documentation
 
+### Thread Pool Types
+
+1. **GlobalThreadPool**
+   - Singleton instance for simple usage
+   - Automatically initialized
+   - Suitable for most applications
+   - Uses default thread count
+
+2. **TSimpleThreadPool**
+   - Custom instance creation
+   - Control over thread count
+   - Multiple pools possible
+   - More control over lifetime
+
+
 ### Core Functions
 
 #### Queue Operations
@@ -16,6 +31,35 @@ GlobalThreadPool.Queue(@MyIndexedProcedure, 42);
 
 // Queue a method with an index
 GlobalThreadPool.Queue(@MyObject.MyIndexedMethod, 42);
+```
+
+#### Error Handling
+
+See `Test16_ExceptionHandling` and `Test18_ExceptionMessage`.
+
+```pascal
+var
+  Pool: TSimpleThreadPool; 
+begin
+  Pool := TSimpleThreadPool.Create;
+  try
+    Pool.Queue(@RiskyProcedure);
+    Pool.WaitForAll;
+    
+    // Check for errors after completion
+    if Pool.LastError <> '' then
+    begin
+      WriteLn('Error occurred: ', Pool.LastError);
+      // Error messages include thread ID and exception message
+      // Example: "[Thread 1234] Test exception message"
+    end;
+    
+    // Clear error state if needed for pool reuse
+    Pool.ClearLastError;
+  finally
+    Pool.Free;
+  end;
+end;
 ```
 
 #### Synchronization
@@ -85,16 +129,17 @@ end;
 ### 🚨 Important Notes
 
 1. **Thread Safety**
-   - Ensure shared resources are protected
-   - Use `TCriticalSection` for thread-safe operations
-   - Avoid writing to the same variables from multiple threads
+   - Critical sections protect shared counters (Test13_ConcurrentQueueAccess)
+   - Multiple WaitForAll calls are safe (Test16_MultipleWaits)
+   - Queue operations are thread-safe (Test15_QueueAfterWait)
+   - Object lifetime is properly managed (Test17_ObjectLifetime)
 
-2. **Object Lifetime**
+1. **Object Lifetime**
    - Keep objects alive until their queued methods complete
    - Wait for tasks to finish before freeing objects
    - Use `try-finally` blocks for proper cleanup
 
-3. **Best Practices**
+2. **Best Practices**
    - Don't queue too many small tasks
    - Consider batching small operations
    - Use indexed operations for better task distribution
@@ -131,10 +176,13 @@ end;
 #### Custom Thread Pool
 ```pascal
 var
-  CustomPool: TThreadPool;
+  CustomPool: TSimpleThreadPool;
 begin
-  // Create pool with specific thread count
-  CustomPool := TThreadPool.Create(4);  // 4 threads
+  // Thread count is automatically adjusted:
+  // - Minimum: 4 threads
+  // - Maximum: 2× ProcessorCount
+  // - Default: ProcessorCount (when count = 0)
+  CustomPool := TSimpleThreadPool.Create(4);
   try
     CustomPool.Queue(@MyProcedure);
     CustomPool.WaitForAll;

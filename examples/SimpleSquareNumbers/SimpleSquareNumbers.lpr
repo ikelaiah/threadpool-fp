@@ -1,9 +1,9 @@
-program SquareNumbers;
+program SimpleSquareNumbers;
 
 {$mode objfpc}{$H+}{$J-}
 
 uses
-  Classes, SysUtils, ThreadPool;
+  Classes, SysUtils, ThreadPool.Simple;
 
 const
   NUMBERS_COUNT = 15;  // Small count for clear output
@@ -73,4 +73,8 @@ begin
   WriteLn('Final Results:');
   for i := 0 to NUMBERS_COUNT-1 do
     WriteLn(Numbers[i], ' squared = ', CalculatedNumbers[i]);
+
+  // Pause console
+  WriteLn('Press enter to quit');
+  ReadLn;
 end.

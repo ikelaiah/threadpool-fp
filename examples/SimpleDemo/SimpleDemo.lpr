@@ -3,7 +3,7 @@ program SimpleDemo;
 {$mode objfpc}{$H+}{$J-}
 
 uses
-  Classes, SysUtils, ThreadPool;
+  Classes, SysUtils, ThreadPool.Simple;
 
 type
   { TMyClass declaration }
@@ -68,4 +68,8 @@ begin
   finally
     MyObject.Free;
   end;
+
+  // Pause console
+  WriteLn('Press enter to quit ...');
+  ReadLn;
 end.
