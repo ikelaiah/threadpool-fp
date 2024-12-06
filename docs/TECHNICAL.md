@@ -6,25 +6,25 @@
 ```mermaid
 graph TD
     A1[Application] --> G[GlobalThreadPool]
-    A2[Application] --> C1[Custom ThreadPool]
+    A2[Application] --> S[TSimpleThreadPool]
     
     subgraph "Interfaces"
         ITP[IThreadPool]
         IWT[IWorkerThread]
         IWI[IWorkItem]
         
-        G & C1 -.->|implements| ITP
+        G & S -.->|implements| ITP
         W1 & W2 & Wn -.->|implements| IWT
         WI -.->|implements| IWI
     end
     
     subgraph "Thread Pool"
-        G & C1 --> |owns| TL[TThreadList]
-        G & C1 --> |owns| WQ[TThreadList<br>Work Queue]
-        G & C1 --> |owns| CS[TCriticalSection<br>Work Item Count]
-        G & C1 --> |owns| EV[TEvent<br>Completion Signal]
-        G & C1 --> |owns| EL[TCriticalSection<br>Error Lock]
-        G & C1 --> |owns| EE[TEvent<br>Error Event]
+        G & S --> |owns| TL[TThreadList]
+        G & S --> |owns| WQ[TThreadList<br>Work Queue]
+        G & S --> |owns| CS[TCriticalSection<br>Work Item Count]
+        G & S --> |owns| EV[TEvent<br>Completion Signal]
+        G & S --> |owns| EL[TCriticalSection<br>Error Lock]
+        G & S --> |owns| EE[TEvent<br>Error Event]
         
         TL --> |contains| W1[Worker Thread 1]
         TL --> |contains| W2[Worker Thread 2]
@@ -45,7 +45,25 @@ graph TD
 
 ## Core Components
 
-### TThreadPool
+### Thread Pool Types
+
+1. **GlobalThreadPool**
+   - Singleton instance for simple usage
+   - Automatically initialized on first use
+   - Uses default thread count based on ProcessorCount
+   - Suitable for most applications
+   - Thread-safe by design
+
+2. **TSimpleThreadPool**
+   - Custom instance creation with configurable thread count
+   - Multiple independent pools possible
+   - Full control over pool lifetime
+   - Same thread safety guarantees as GlobalThreadPool
+   - Useful for specialized threading scenarios
+
+Both types share the same underlying implementation and provide identical thread safety guarantees and features. The main difference is in initialization and lifetime management.
+
+### TSimpleThreadPool
 
 Main thread pool manager that:
 
@@ -56,26 +74,7 @@ Main thread pool manager that:
 - Provides thread-safe queueing methods
 - Handles shutdown and cleanup
 - Implements comprehensive error handling
-- Supports automatic thread count management
-
-### Thread Safety Features
-
-The implementation uses several synchronization mechanisms:
-
-- `TThreadList` for thread and work item collections (Test13_ConcurrentQueueAccess)
-- `TCriticalSection` for work item count
-- `TEvent` for completion signaling (Test16_MultipleWaits)
-- Thread-safe queue operations (Test15_QueueAfterWait)
-- Safe object lifetime management (Test17_ObjectLifetime)
-
-### Error Handling
-
-The implementation includes:
-- Exception capture in worker threads
-- Thread-safe error storage
-- Error message persistence
-- Ability to clear errors and continue
-- Support for multiple concurrent exceptions
+- Supports thread count configuration
 
 ### TWorkerThread
 
