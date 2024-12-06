@@ -155,9 +155,6 @@ end;
 - When you need control over pool lifetime
 
 
-
-## 📚 Examples
-
 ## 📚 Examples
 
 1. 🎓 **Simple Demo** (`examples/SimpleDemo/SimpleDemo.lpr`)
