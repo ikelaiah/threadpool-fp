@@ -136,6 +136,7 @@ type
     function FindLeastLoadedWorker: TWorkStealingThread;
     procedure DistributeWork(AWorkItem: IWorkItem);
     procedure HandleError(const AError: string);
+    procedure DecrementWorkCount;
   public
     constructor Create(AThreadCount: Integer = 0); override;
     destructor Destroy; override;
@@ -310,7 +311,7 @@ procedure TWorkStealingThread.Execute;
 var
   WorkItem: IWorkItem;
 begin
-  while not FTerminating do
+  while not Terminated do
   begin
     if TryGetWork(WorkItem) then
     begin
@@ -320,21 +321,13 @@ begin
         on E: Exception do
           TWorkStealingPool(FPool).HandleError(Format('Thread %d: %s', [ThreadID, E.Message]));
       end;
-      // Decrement work count after completion
-      with TWorkStealingPool(FPool) do
-      begin
-        FWorkLock.Enter;
-        try
-          Dec(FWorkCount);
-        finally
-          FWorkLock.Leave;
-        end;
-      end;
+      
+      TWorkStealingPool(FPool).DecrementWorkCount;
     end
     else
     begin
       if not TryStealWork then
-        FWorkEvent.WaitFor(1);  // Short wait if no work found
+        Sleep(1);  // Short sleep if no work found
     end;
   end;
 end;
@@ -606,38 +599,75 @@ begin
 end;
 
 procedure TWorkStealingPool.Queue(AMethod: TThreadMethod);
+var
+  WorkItem: IWorkItem;
 begin
-  DistributeWork(TWorkItemMethod.Create(AMethod));
+  if not Assigned(AMethod) then
+    Exit;
+    
+  WorkItem := TWorkItemMethod.Create(AMethod);
+  FWorkLock.Enter;
+  try
+    Inc(FWorkCount);
+    DistributeWork(WorkItem);
+  finally
+    FWorkLock.Leave;
+  end;
 end;
 
 procedure TWorkStealingPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
+var
+  WorkItem: IWorkItem;
 begin
-  DistributeWork(TWorkItemProcedureIndex.Create(AProcedure, AIndex));
+  if not Assigned(AProcedure) then
+    Exit;
+    
+  WorkItem := TWorkItemProcedureIndex.Create(AProcedure, AIndex);
+  FWorkLock.Enter;
+  try
+    Inc(FWorkCount);
+    DistributeWork(WorkItem);
+  finally
+    FWorkLock.Leave;
+  end;
 end;
 
 procedure TWorkStealingPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
+var
+  WorkItem: IWorkItem;
 begin
-  DistributeWork(TWorkItemMethodIndex.Create(AMethod, AIndex));
+  if not Assigned(AMethod) then
+    Exit;
+    
+  WorkItem := TWorkItemMethodIndex.Create(AMethod, AIndex);
+  FWorkLock.Enter;
+  try
+    Inc(FWorkCount);
+    DistributeWork(WorkItem);
+  finally
+    FWorkLock.Leave;
+  end;
 end;
 
 procedure TWorkStealingPool.WaitForAll;
-var
-  AllDone: Boolean;
-  I: Integer;
 begin
-  repeat
-    FWorkLock.Enter;
-    try
-      AllDone := FWorkCount = 0;
-      for I := 0 to High(FWorkers) do
-        AllDone := AllDone and FWorkers[I].LocalDeque.IsEmpty;
-    finally
+  FWorkLock.Enter;
+  try
+    while FWorkCount > 0 do
+    begin
       FWorkLock.Leave;
+      try
+        // Wait for work event with timeout to prevent deadlock
+        FWorkEvent.WaitFor(100);
+        // Reset event for next wait
+        FWorkEvent.ResetEvent;
+      finally
+        FWorkLock.Enter;
+      end;
     end;
-    
-    if not AllDone then
-      Sleep(1);
-  until AllDone;
+  finally
+    FWorkLock.Leave;
+  end;
 end;
 
 function TWorkStealingPool.GetThreadCount: Integer;
@@ -734,6 +764,18 @@ end;
 procedure TWorkItemMethodIndex.Execute;
 begin
   FMethod(FIndex);
+end;
+
+procedure TWorkStealingPool.DecrementWorkCount;
+begin
+  FWorkLock.Enter;
+  try
+    Dec(FWorkCount);
+    if FWorkCount = 0 then
+      FWorkEvent.SetEvent;  // Signal completion
+  finally
+    FWorkLock.Leave;
+  end;
 end;
 
 end.
