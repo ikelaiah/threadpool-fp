@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, fpcunit, testregistry, SyncObjs,
-  ThreadPool.Types, ThreadPool.WorkStealing;
+  ThreadPool.Types, ThreadPool.WorkStealing, DateUtils;
 
 type
   { TWorkStealingPoolTests }

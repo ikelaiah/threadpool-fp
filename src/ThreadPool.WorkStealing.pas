@@ -130,23 +130,22 @@ type
     FWorkEvent: TEvent;
     FErrorLock: TCriticalSection;
     
-    procedure DistributeWork(AWorkItem: IWorkItem);
     function FindLeastLoadedWorker: TWorkStealingThread;
-  protected
+    procedure DistributeWork(AWorkItem: IWorkItem);
     procedure HandleError(const AError: string);
   public
     constructor Create(AThreadCount: Integer = 0); override;
     destructor Destroy; override;
     
-    // IThreadPool implementation
     procedure Queue(AProcedure: TThreadProcedure); override;
     procedure Queue(AMethod: TThreadMethod); override;
     procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); override;
     procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); override;
     procedure WaitForAll; override;
+    procedure ClearLastError; override;
+    
     function GetThreadCount: Integer; override;
     function GetLastError: string; override;
-    procedure ClearLastError; override;
   end;
 
 function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
@@ -491,6 +490,26 @@ begin
   end;
 end;
 
+function TWorkStealingPool.GetLastError: string;
+begin
+  FErrorLock.Enter;
+  try
+    Result := FLastError;
+  finally
+    FErrorLock.Leave;
+  end;
+end;
+
+procedure TWorkStealingPool.ClearLastError;
+begin
+  FErrorLock.Enter;
+  try
+    FLastError := '';
+  finally
+    FErrorLock.Leave;
+  end;
+end;
+
 procedure TWorkStealingPool.Queue(AProcedure: TThreadProcedure);
 begin
   DistributeWork(TWorkItemProcedure.Create(AProcedure));
@@ -536,33 +555,95 @@ begin
   Result := Length(FWorkers);
 end;
 
-function TWorkStealingPool.GetLastError: string;
-begin
-  FErrorLock.Enter;
-  try
-    Result := FLastError;
-  finally
-    FErrorLock.Leave;
-  end;
-end;
-
-procedure TWorkStealingPool.ClearLastError;
-begin
-  FErrorLock.Enter;
-  try
-    FLastError := '';
-  finally
-    FErrorLock.Leave;
-  end;
-end;
-
 function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
+var
+  TempTarget: LongInt;
+  TempOld: LongInt;
+  TempNew: LongInt;
 begin
   {$IFDEF CPU64}
-  Result := InterlockedCompareExchange(LongInt(Target), LongInt(NewValue), LongInt(OldValue)) = LongInt(OldValue);
+  TempTarget := LongInt(Target);
+  TempOld := LongInt(OldValue);
+  TempNew := LongInt(NewValue);
+  Result := InterlockedCompareExchange(TempTarget, TempNew, TempOld) = TempOld;
+  Target := NativeUInt(TempTarget);
   {$ELSE}
   Result := InterlockedCompareExchange(LongWord(Target), LongWord(NewValue), LongWord(OldValue)) = LongWord(OldValue);
   {$ENDIF}
+end;
+
+{ TWorkItemProcedure }
+
+constructor TWorkItemProcedure.Create(AProc: TThreadProcedure);
+begin
+  inherited Create;
+  FProc := AProc;
+end;
+
+function TWorkItemProcedure.GetItemType: Integer;
+begin
+  Result := Ord(witProcedure);
+end;
+
+procedure TWorkItemProcedure.Execute;
+begin
+  FProc;
+end;
+
+{ TWorkItemMethod }
+
+constructor TWorkItemMethod.Create(AMethod: TThreadMethod);
+begin
+  inherited Create;
+  FMethod := AMethod;
+end;
+
+function TWorkItemMethod.GetItemType: Integer;
+begin
+  Result := Ord(witMethod);
+end;
+
+procedure TWorkItemMethod.Execute;
+begin
+  FMethod;
+end;
+
+{ TWorkItemProcedureIndex }
+
+constructor TWorkItemProcedureIndex.Create(AProc: TThreadProcedureIndex; AIndex: Integer);
+begin
+  inherited Create;
+  FProc := AProc;
+  FIndex := AIndex;
+end;
+
+function TWorkItemProcedureIndex.GetItemType: Integer;
+begin
+  Result := Ord(witProcedureIndex);
+end;
+
+procedure TWorkItemProcedureIndex.Execute;
+begin
+  FProc(FIndex);
+end;
+
+{ TWorkItemMethodIndex }
+
+constructor TWorkItemMethodIndex.Create(AMethod: TThreadMethodIndex; AIndex: Integer);
+begin
+  inherited Create;
+  FMethod := AMethod;
+  FIndex := AIndex;
+end;
+
+function TWorkItemMethodIndex.GetItemType: Integer;
+begin
+  Result := Ord(witMethodIndex);
+end;
+
+procedure TWorkItemMethodIndex.Execute;
+begin
+  FMethod(FIndex);
 end;
 
 end.
