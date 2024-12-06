@@ -146,6 +146,9 @@ type
     
     function GetThreadCount: Integer; override;
     function GetLastError: string; override;
+    
+    property ThreadCount: Integer read GetThreadCount;
+    property LastError: string read GetLastError;
   end;
 
 function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
