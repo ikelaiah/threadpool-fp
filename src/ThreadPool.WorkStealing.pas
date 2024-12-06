@@ -9,6 +9,57 @@ uses
   ThreadPool.Types;
 
 type
+  { Work item implementations }
+  TWorkItemBase = class(TInterfacedObject, IWorkItem)
+  protected
+    function GetItemType: Integer; virtual; abstract;
+  public
+    procedure Execute; virtual; abstract;
+    property ItemType: Integer read GetItemType;
+  end;
+
+  TWorkItemProcedure = class(TWorkItemBase)
+  private
+    FProc: TThreadProcedure;
+  protected
+    function GetItemType: Integer; override;
+  public
+    constructor Create(AProc: TThreadProcedure);
+    procedure Execute; override;
+  end;
+
+  TWorkItemMethod = class(TWorkItemBase)
+  private
+    FMethod: TThreadMethod;
+  protected
+    function GetItemType: Integer; override;
+  public
+    constructor Create(AMethod: TThreadMethod);
+    procedure Execute; override;
+  end;
+
+  TWorkItemProcedureIndex = class(TWorkItemBase)
+  private
+    FProc: TThreadProcedureIndex;
+    FIndex: Integer;
+  protected
+    function GetItemType: Integer; override;
+  public
+    constructor Create(AProc: TThreadProcedureIndex; AIndex: Integer);
+    procedure Execute; override;
+  end;
+
+  TWorkItemMethodIndex = class(TWorkItemBase)
+  private
+    FMethod: TThreadMethodIndex;
+    FIndex: Integer;
+  protected
+    function GetItemType: Integer; override;
+  public
+    constructor Create(AMethod: TThreadMethodIndex; AIndex: Integer);
+    procedure Execute; override;
+  end;
+
   { Lock-free work-stealing deque implementation }
   TWorkStealingDeque = class(TInterfacedObject, IWorkQueue)
   private const
@@ -45,11 +96,17 @@ type
     FPool: TObject;  // Actually TWorkStealingPool, avoid circular reference
     FWorkEvent: TEvent;
     FTerminating: Boolean;
+    FRefCount: Integer;
     
     function TryGetWork(out AWorkItem: IWorkItem): Boolean;
     function TryStealWork: Boolean;
   protected
     procedure Execute; override;
+    
+    // IInterface implementation
+    function QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
+    function _AddRef: Integer; stdcall;
+    function _Release: Integer; stdcall;
   public
     constructor Create(APool: TObject);
     destructor Destroy; override;
@@ -58,6 +115,8 @@ type
     procedure Start;
     procedure SignalWork;
     procedure Terminate;
+    procedure WaitFor;
+    function GetThreadID: TThreadID;
     
     property LocalDeque: TWorkStealingDeque read FLocalDeque;
   end;
@@ -70,7 +129,6 @@ type
     FWorkLock: TCriticalSection;
     FWorkEvent: TEvent;
     FErrorLock: TCriticalSection;
-    FLastError: string;
     
     procedure DistributeWork(AWorkItem: IWorkItem);
     function FindLeastLoadedWorker: TWorkStealingThread;
@@ -90,6 +148,8 @@ type
     function GetLastError: string; override;
     procedure ClearLastError; override;
   end;
+
+function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
 
 implementation
 
@@ -292,7 +352,7 @@ end;
 
 procedure TWorkStealingThread.Start;
 begin
-  Resume;
+  inherited Start;  // Changed from Resume to Start
 end;
 
 procedure TWorkStealingThread.SignalWork;
@@ -304,6 +364,36 @@ procedure TWorkStealingThread.Terminate;
 begin
   FTerminating := True;
   SignalWork;  // Wake up thread to check terminating flag
+end;
+
+function TWorkStealingThread._AddRef: Integer; stdcall;
+begin
+  Result := InterlockedIncrement(FRefCount);
+end;
+
+function TWorkStealingThread._Release: Integer; stdcall;
+begin
+  Result := InterlockedDecrement(FRefCount);
+  if Result = 0 then
+    Destroy;
+end;
+
+function TWorkStealingThread.QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
+begin
+  if GetInterface(IID, Obj) then
+    Result := S_OK
+  else
+    Result := E_NOINTERFACE;
+end;
+
+procedure TWorkStealingThread.WaitFor;
+begin
+  inherited WaitFor;
+end;
+
+function TWorkStealingThread.GetThreadID: TThreadID;
+begin
+  Result := ThreadID;
 end;
 
 { TWorkStealingPool }
@@ -464,54 +554,9 @@ begin
   end;
 end;
 
-procedure TWorkStealingThread.Execute;
-var
-  WorkItem: IWorkItem;
+function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
 begin
-  while not FTerminating do
-  begin
-    if TryGetWork(WorkItem) then
-    begin
-      try
-        WorkItem.Execute;
-      except
-        on E: Exception do
-          TWorkStealingPool(FPool).HandleError(Format('Thread %d: %s', [ThreadID, E.Message]));
-      end;
-    end
-    else
-    begin
-      if not TryStealWork then
-        FWorkEvent.WaitFor(1);  // Short wait if no work found
-    end;
-  end;
-end;
-
-
-function TWorkStealingThread.TryStealWork: Boolean;
-var
-  WorkItem: IWorkItem;
-  I: Integer;
-begin
-  Result := False;
-  with TWorkStealingPool(FPool) do
-  begin
-    for I := 0 to High(FWorkers) do
-    begin
-      if (FWorkers[I] <> Self) and 
-         FWorkers[I].LocalDeque.TrySteal(WorkItem) then
-      begin
-        FLocalDeque.TryPush(WorkItem);
-        Result := True;
-        Break;
-      end;
-    end;
-  end;
-end;
-
-function TWorkStealingThread.TryGetWork(out AWorkItem: IWorkItem): Boolean;
-begin
-  Result := FLocalDeque.TryPop(AWorkItem);
+  Result := InterlockedCompareExchange(Target, NewValue, OldValue) = OldValue;
 end;
 
 end.
