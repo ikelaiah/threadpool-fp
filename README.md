@@ -25,10 +25,10 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 
 ## ✨ Features
 
-- 🔄 Automatic thread count management
-  - Minimum 4 threads for optimal parallelism
-  - Maximum 2× ProcessorCount to prevent overload
-  - Automatic adjustment to safe limits
+- 🔄 **Thread Count Configuration**
+  - Set a minimum of 4 threads for optimal parallelism
+  - Set a maximum of 2× `ProcessorCount` to prevent overload
+  - Thread count is fixed upon initialization
   
 - 🎯 Multiple task types support
   - Simple procedures: `GlobalThreadPool.Queue(@MyProc)`
