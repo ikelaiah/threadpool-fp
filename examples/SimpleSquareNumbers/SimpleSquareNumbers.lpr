@@ -1,4 +1,4 @@
-program SquareNumbers;
+program SimpleSquareNumbers;
 
 {$mode objfpc}{$H+}{$J-}
 

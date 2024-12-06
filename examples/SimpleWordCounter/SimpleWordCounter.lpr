@@ -1,4 +1,4 @@
-program WordCounter;
+program SimpleWordCounter;
 
 {$mode objfpc}{$H+}{$J-}
 

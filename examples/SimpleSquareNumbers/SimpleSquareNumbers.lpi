@@ -10,7 +10,7 @@
         <MainUnitHasScaledStatement Value="False"/>
       </Flags>
       <SessionStorage Value="InProjectDir"/>
-      <Title Value="SquareNumbers"/>
+      <Title Value="SimpleSquareNumbers"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
     </General>
@@ -21,7 +21,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="SquareNumbers"/>
+            <Filename Value="SimpleSquareNumbers"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
@@ -56,7 +56,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="SquareNumbers"/>
+            <Filename Value="SimpleSquareNumbers"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
@@ -88,7 +88,7 @@
     </RunParams>
     <Units>
       <Unit>
-        <Filename Value="SquareNumbers.lpr"/>
+        <Filename Value="SimpleSquareNumbers.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit>
     </Units>
@@ -97,7 +97,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="SquareNumbers"/>
+      <Filename Value="SimpleSquareNumbers"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
