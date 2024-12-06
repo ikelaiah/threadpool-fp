@@ -8,7 +8,7 @@ unit ThreadPool_FP;
 interface
 
 uses
-  ThreadPool;
+  ThreadPool.Simple, ThreadPool.Types;
 
 implementation
 

@@ -41,11 +41,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE. "/>
-    <Version Minor="1" Build="9999"/>
+    <Version Minor="2"/>
     <Files>
       <Item>
-        <Filename Value="..\..\src\threadpool.pas"/>
-        <UnitName Value="ThreadPool"/>
+        <Filename Value="..\..\src\ThreadPool.Simple.pas"/>
+        <UnitName Value="ThreadPool.Simple"/>
+      </Item>
+      <Item>
+        <Filename Value="..\..\src\ThreadPool.Types.pas"/>
+        <UnitName Value="ThreadPool.Types"/>
       </Item>
     </Files>
     <RequiredPkgs>
