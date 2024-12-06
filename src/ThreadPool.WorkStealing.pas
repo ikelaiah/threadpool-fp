@@ -412,69 +412,87 @@ end;
 
 { TWorkStealingPool }
 
-constructor TWorkStealingPool.Create(AThreadCount: Integer);
+constructor TWorkStealingPool.Create(AThreadCount: Integer = 0);
 var
-  I: Integer;
+  I:Integer;
 begin
-  // Initialize synchronization objects first
-  FWorkLock := TCriticalSection.Create;
-  FWorkEvent := TEvent.Create(nil, True, False, '');
-  FErrorLock := TCriticalSection.Create;
-  FLastError := '';
-  
-  // Set initial thread count and create array
-  if AThreadCount <= 0 then
-    AThreadCount := TThread.ProcessorCount
-  else
-    AThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
-  AThreadCount := Max(AThreadCount, 4);  // Minimum of 4 threads
-  
-  SetLength(FWorkers, AThreadCount);
-  
-  // Now call inherited with the validated thread count
   inherited Create(AThreadCount);
   
-  // Create worker threads
-  for I := 0 to High(FWorkers) do
-    FWorkers[I] := TWorkStealingThread.Create(Self);
+  // Initialize synchronization objects before creating threads
+  FWorkLock := TCriticalSection.Create;
+  FErrorLock := TCriticalSection.Create;
+  FWorkEvent := TEvent.Create(nil, True, False, ''); // Manual reset event
+  
+  try
+    SetLength(FWorkers, GetThreadCount);
+    FWorkCount := 0;
     
-  // Start all workers
-  for I := 0 to High(FWorkers) do
-    FWorkers[I].Start;
+    // Create workers after all synchronization objects are ready
+    for I := 0 to High(FWorkers) do
+    begin
+      FWorkers[I] := TWorkStealingThread.Create(Self);
+      try
+        FWorkers[I].Start;
+      except
+        // Clean up on failure
+        FWorkers[I].Free;
+        raise;
+      end;
+    end;
+  except
+    // Clean up on any failure
+    for I := 0 to High(FWorkers) do
+      if Assigned(FWorkers[I]) then
+        FWorkers[I].Free;
+    FWorkEvent.Free;
+    FWorkLock.Free;
+    FErrorLock.Free;
+    raise;
+  end;
 end;
 
 destructor TWorkStealingPool.Destroy;
 var
   I: Integer;
 begin
-  // Terminate all workers
+  // Signal all threads to terminate
   for I := 0 to High(FWorkers) do
-    FWorkers[I].Terminate;
+    if Assigned(FWorkers[I]) then
+      FWorkers[I].Terminate;
+      
+  // Wait for threads to finish
+  for I := 0 to High(FWorkers) do
+    if Assigned(FWorkers[I]) then
+    begin
+      FWorkers[I].WaitFor;
+      FWorkers[I].Free;
+    end;
     
-  // Wait for all workers to finish
-  for I := 0 to High(FWorkers) do
-  begin
-    FWorkers[I].WaitFor;
-    FWorkers[I].Free;
-  end;
-  
-  // Cleanup
+  // Clean up synchronization objects
   FWorkLock.Free;
-  FWorkEvent.Free;
   FErrorLock.Free;
+  FWorkEvent.Free;
+  
   inherited;
 end;
 
 procedure TWorkStealingPool.DistributeWork(AWorkItem: IWorkItem);
 var
   Worker: TWorkStealingThread;
+  Distributed: Boolean;
 begin
+  if not Assigned(AWorkItem) then
+    Exit;
+    
   FWorkLock.Enter;
   try
-    Inc(FWorkCount);
     Worker := FindLeastLoadedWorker;
-    Worker.LocalDeque.TryPush(AWorkItem);
-    Worker.SignalWork;
+    if Assigned(Worker) and Assigned(Worker.LocalDeque) then
+    begin
+      Distributed := Worker.LocalDeque.TryPush(AWorkItem);
+      if Distributed then
+        Worker.SignalWork;
+    end;
   finally
     FWorkLock.Leave;
   end;
@@ -532,8 +550,20 @@ begin
 end;
 
 procedure TWorkStealingPool.Queue(AProcedure: TThreadProcedure);
+var
+  WorkItem: IWorkItem;
 begin
-  DistributeWork(TWorkItemProcedure.Create(AProcedure));
+  if not Assigned(AProcedure) then
+    Exit;
+    
+  WorkItem := TWorkItemProcedure.Create(AProcedure);
+  FWorkLock.Enter;
+  try
+    Inc(FWorkCount);
+    DistributeWork(WorkItem);
+  finally
+    FWorkLock.Leave;
+  end;
 end;
 
 procedure TWorkStealingPool.Queue(AMethod: TThreadMethod);
