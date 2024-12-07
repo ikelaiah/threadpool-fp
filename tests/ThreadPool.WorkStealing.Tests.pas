@@ -61,7 +61,7 @@ end;
 
 procedure TWorkStealingPoolTests.ProcessWithIndex(AIndex: Integer);
 begin
-  FCounter.Increment;
+  FCounter.IncrementBy(AIndex);
 end;
 
 procedure TWorkStealingPoolTests.RaiseException;

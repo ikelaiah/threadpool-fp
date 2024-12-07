@@ -336,6 +336,7 @@ procedure TWorkStealingThread.Execute;
 var
   WorkItem: IWorkItem;
 begin
+  WriteLn(Format('Thread %d: Starting', [ThreadID]));
   while not Terminated do
   begin
     if TryGetWork(WorkItem) then
@@ -348,14 +349,15 @@ begin
         WriteLn(Format('Thread %d: Executing work item', [ThreadID]));
         WorkItem.Execute;
         WriteLn(Format('Thread %d: Work item executed', [ThreadID]));
+        TWorkStealingPool(FPool).DecrementWorkCount;
+        WriteLn(Format('Thread %d: Work count decremented', [ThreadID]));
       except
         on E: Exception do
-          TWorkStealingPool(FPool).HandleError(Format('Thread %d: %s', [ThreadID, E.Message]));
+          TWorkStealingPool(FPool).HandleError(
+            Format('Thread %d: %s', [ThreadID, E.Message]));
       end;
       
-      WriteLn(Format('Thread %d: Decrementing work count', [ThreadID]));
-      TWorkStealingPool(FPool).DecrementWorkCount;
-      WriteLn(Format('Thread %d: Work count decremented', [ThreadID]));
+      WorkItem := nil; // Release the interface
     end
     else
     begin
@@ -365,14 +367,16 @@ begin
       if not TryStealWork then
       begin
         WriteLn(Format('Thread %d: No work found, waiting', [ThreadID]));
-        FWorkEvent.WaitFor(1);
+        FWorkEvent.WaitFor(100); // Shorter wait time for debugging
       end;
     end;
   end;
+  WriteLn(Format('Thread %d: Terminating', [ThreadID]));
 end;
 
 function TWorkStealingThread.TryGetWork(out AWorkItem: IWorkItem): Boolean;
 begin
+  WriteLn(Format('Thread %d: Attempting to get work', [ThreadID]));
   Result := FLocalDeque.TryPop(AWorkItem);
   if Result then
     WriteLn(Format('Thread %d: Got work from local queue', [ThreadID]))
@@ -670,26 +674,21 @@ begin
 end;
 
 procedure TWorkStealingPool.Queue(AProcedure: TThreadProcedure);
-var
-  WorkItem: IWorkItem;
 begin
+  WriteLn('Queue: Creating work item');
   if not Assigned(AProcedure) then
     Exit;
     
+  FWorkLock.Enter;
   try
-    WorkItem := TWorkItemProcedure.Create(AProcedure);
-    FWorkLock.Enter;
-    try
-      Inc(FWorkCount);
-      DistributeWork(WorkItem);
-    finally
-      FWorkLock.Leave;
-      WorkItem := nil;  // Explicitly release interface
-    end;
-  except
-    on E: Exception do
-      HandleError(E.Message);
+    WriteLn('Queue: Incrementing work count');
+    Inc(FWorkCount);
+    WriteLn(Format('Queue: Work count = %d', [FWorkCount]));
+    DistributeWork(TWorkItemProcedure.Create(AProcedure));
+  finally
+    FWorkLock.Leave;
   end;
+  WriteLn('Queue: Work item queued');
 end;
 
 procedure TWorkStealingPool.Queue(AMethod: TThreadMethod);
@@ -912,18 +911,19 @@ procedure TWorkStealingPool.DecrementWorkCount;
 begin
   FWorkLock.Enter;
   try
+    WriteLn(Format('DecrementWorkCount: Current count = %d', [FWorkCount]));
     if FWorkCount > 0 then
     begin
       Dec(FWorkCount);
-      WriteLn(Format('DecrementWorkCount: Work count decreased to %d', [FWorkCount]));
+      WriteLn(Format('DecrementWorkCount: New count = %d', [FWorkCount]));
       if FWorkCount = 0 then
       begin
-        WriteLn('DecrementWorkCount: Signaling work completion');
+        WriteLn('DecrementWorkCount: All work completed, signaling event');
         FWorkEvent.SetEvent;
       end;
     end
     else
-      WriteLn('DecrementWorkCount: Warning - attempting to decrement zero work count');
+      WriteLn('DecrementWorkCount: Warning - attempting to decrement zero count');
   finally
     FWorkLock.Leave;
   end;
