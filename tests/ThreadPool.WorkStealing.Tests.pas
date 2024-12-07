@@ -85,21 +85,31 @@ end;
 
 procedure TWorkStealingPoolTests.IncrementCounter;
 begin
-  FCounterLock.Enter;
   try
-    Inc(FCounter);
-  finally
-    FCounterLock.Leave;
+    FCounterLock.Enter;
+    try
+      Inc(FCounter);
+    finally
+      FCounterLock.Leave;
+    end;
+  except
+    on E: Exception do
+      WriteLn('IncrementCounter Exception: ', E.Message);
   end;
 end;
 
 procedure TWorkStealingPoolTests.ProcessWithIndex(AIndex: Integer);
 begin
-  FCounterLock.Enter;
   try
-    Inc(FCounter, AIndex);
-  finally
-    FCounterLock.Leave;
+    FCounterLock.Enter;
+    try
+      Inc(FCounter, AIndex);
+    finally
+      FCounterLock.Leave;
+    end;
+  except
+    on E: Exception do
+      WriteLn('ProcessWithIndex Exception: ', E.Message);
   end;
 end;
 
@@ -222,7 +232,7 @@ procedure TWorkStealingPoolTests.Test07_StressTest;
 var
   I: Integer;
 begin
-  WriteLn('Test07_StressTest');
+  WriteLn('Test07_StressTest: Starting');
   for I := 1 to 10000 do
   begin
     if I mod 2 = 0 then
@@ -231,11 +241,12 @@ begin
       FPool.Queue(@ProcessWithIndex, I);
   end;
   
+  WriteLn('Test07_StressTest: Waiting for all tasks');
   FPool.WaitForAll;
   
   AssertTrue('Counter should be greater than zero', FCounter > 0);
   AssertEquals('No errors should occur', '', FPool.LastError);
-  WriteLn('Test07_StressTest completed');
+  WriteLn('Test07_StressTest: Completed');
 end;
 
 procedure TWorkStealingPoolTests.Test08_ConcurrentQueuing;
