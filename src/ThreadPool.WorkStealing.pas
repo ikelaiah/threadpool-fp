@@ -608,33 +608,16 @@ end;
 procedure TWorkStealingPool.DistributeWork(AWorkItem: IWorkItem);
 var
   Worker: TWorkStealingThread;
-  Distributed: Boolean;
 begin
   if not Assigned(AWorkItem) then
     Exit;
     
-  FWorkLock.Enter;
-  try
-    Worker := FindLeastLoadedWorker;
-    if Assigned(Worker) and Assigned(Worker.LocalDeque) then
-    begin
-      Distributed := Worker.LocalDeque.TryPush(AWorkItem);
-      if Distributed then
-      begin
-        WriteLn('DistributeWork: Work item pushed to worker queue');
-        if Assigned(FWorkEvent) then
-        begin
-          WriteLn('DistributeWork: Signaling work event');
-          FWorkEvent.SetEvent;
-        end;
-      end
-      else
-        WriteLn('DistributeWork: Failed to push work item');
-    end
-    else
-      WriteLn('DistributeWork: No valid worker found');
-  finally
-    FWorkLock.Leave;
+  // Already under FWorkLock from Queue method
+  Worker := FindLeastLoadedWorker;
+  if Assigned(Worker) and Assigned(Worker.LocalDeque) then
+  begin
+    Worker.LocalDeque.TryPush(AWorkItem);
+    Worker.SignalWork;
   end;
 end;
 
@@ -701,22 +684,18 @@ procedure TWorkStealingPool.Queue(AProcedure: TThreadProcedure);
 var
   WorkItem: IWorkItem;
 begin
-  WriteLn('Queue: Creating work item');
   if not Assigned(AProcedure) then
     Exit;
     
-  WorkItem := TWorkItemProcedure.Create(AProcedure);  // Create with interface variable
+  WorkItem := TWorkItemProcedure.Create(AProcedure);
   
   FWorkLock.Enter;
   try
-    WriteLn('Queue: Incrementing work count');
     Inc(FWorkCount);
-    WriteLn(Format('Queue: Work count = %d', [FWorkCount]));
     DistributeWork(WorkItem);  // Pass the interface variable
   finally
     FWorkLock.Leave;
   end;
-  WriteLn('Queue: Work item queued');
 end;
 
 procedure TWorkStealingPool.Queue(AMethod: TThreadMethod);
@@ -939,19 +918,12 @@ procedure TWorkStealingPool.DecrementWorkCount;
 begin
   FWorkLock.Enter;
   try
-    WriteLn(Format('DecrementWorkCount: Current count = %d', [FWorkCount]));
     if FWorkCount > 0 then
     begin
       Dec(FWorkCount);
-      WriteLn(Format('DecrementWorkCount: New count = %d', [FWorkCount]));
       if FWorkCount = 0 then
-      begin
-        WriteLn('DecrementWorkCount: All work completed, signaling event');
         FWorkEvent.SetEvent;
-      end;
-    end
-    else
-      WriteLn('DecrementWorkCount: Warning - attempting to decrement zero count');
+    end;
   finally
     FWorkLock.Leave;
   end;
