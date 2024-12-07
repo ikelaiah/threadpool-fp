@@ -56,9 +56,24 @@ end;
 
 procedure TWorkStealingPoolTests.TearDown;
 begin
+  WriteLn('TearDown: Starting cleanup');
   try
-    FPool.Free;
-    FCounterLock.Free;
+    if Assigned(FPool) then
+    begin
+      WriteLn('TearDown: Freeing thread pool');
+      FPool.Free;
+      FPool := nil;
+      WriteLn('TearDown: Thread pool freed');
+    end;
+    
+    if Assigned(FCounterLock) then
+    begin
+      WriteLn('TearDown: Freeing counter lock');
+      FCounterLock.Free;
+      FCounterLock := nil;
+      WriteLn('TearDown: Counter lock freed');
+    end;
+    WriteLn('TearDown: Cleanup completed');
   except
     on E: Exception do
     begin

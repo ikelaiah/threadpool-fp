@@ -460,15 +460,20 @@ var
   I: Integer;
   WorkerCount: Integer;
 begin
+  WriteLn('ThreadPool.Destroy: Starting cleanup');
   try
     // Signal termination first
     if Assigned(FWorkLock) then
     begin
+      WriteLn('ThreadPool.Destroy: Signaling thread termination');
       FWorkLock.Enter;
       try
         for I := Low(FWorkers) to High(FWorkers) do
           if Assigned(FWorkers[I]) then
+          begin
+            WriteLn(Format('ThreadPool.Destroy: Terminating worker %d', [I]));
             FWorkers[I].Terminate;
+          end;
       finally
         FWorkLock.Leave;
       end;
@@ -477,24 +482,30 @@ begin
     // Wait for and free threads
     WorkerCount := Length(FWorkers);
     if WorkerCount > 0 then
+    begin
+      WriteLn(Format('ThreadPool.Destroy: Cleaning up %d workers', [WorkerCount]));
       for I := 0 to WorkerCount - 1 do
         if Assigned(FWorkers[I]) then
         begin
           try
+            WriteLn(Format('ThreadPool.Destroy: Waiting for worker %d', [I]));
             FWorkers[I].WaitFor;
+            WriteLn(Format('ThreadPool.Destroy: Freeing worker %d', [I]));
             FWorkers[I].Free;
           except
-            // Ignore cleanup errors
+            WriteLn(Format('ThreadPool.Destroy: Error cleaning up worker %d', [I]));
           end;
         end;
+    end;
 
     // Clean up synchronization objects
+    WriteLn('ThreadPool.Destroy: Cleaning up synchronization objects');
     FWorkEvent.Free;
     FWorkLock.Free;
     FErrorLock.Free;
+    WriteLn('ThreadPool.Destroy: Cleanup completed');
   except
-    // Log or handle cleanup errors
-    WriteLn('Error during thread pool cleanup');
+    WriteLn('ThreadPool.Destroy: Error during cleanup');
   end;
 
   inherited;
