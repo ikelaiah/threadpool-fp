@@ -260,15 +260,26 @@ begin
   try
     T := FTop;
     B := FBottom;
+    
+    // Check if there's work to steal
     if T < B then
     begin
       AWorkItem := FItems[T and FMask];
+      // Clear the slot before incrementing top to prevent double-stealing
+      FItems[T and FMask] := nil;
       Result := CompareAndSwap(FTop, T, T + 1);
       if not Result then
+      begin
         AWorkItem := nil;
+        // Restore the item if CAS failed
+        FItems[T and FMask] := AWorkItem;
+      end;
     end
     else
+    begin
+      AWorkItem := nil;
       Result := False;
+    end;
   finally
     FCasLock.Leave;
   end;
