@@ -384,27 +384,40 @@ function TWorkStealingThread.TryStealWork: Boolean;
 var
   WorkItem: IWorkItem;
   OtherThread: TWorkStealingThread;
-  I: Integer;
+  I, Attempts: Integer;
 begin
   Result := False;
-  WriteLn(Format('Thread %d: Attempting to steal work', [ThreadID]));
-  with TWorkStealingPool(FPool) do
+  Attempts := 0;
+  
+  while (not Result) and (Attempts < 3) do  // Limit steal attempts
   begin
-    for I := 0 to Length(FWorkers) - 1 do
+    with TWorkStealingPool(FPool) do
     begin
-      OtherThread := FWorkers[I];
-      if (OtherThread <> Self) and 
-         OtherThread.LocalDeque.TrySteal(WorkItem) then
+      for I := 0 to Length(FWorkers) - 1 do
       begin
-        WriteLn(Format('Thread %d: Stole work from thread %d', [ThreadID, I]));
-        FLocalDeque.TryPush(WorkItem);
-        Result := True;
-        Break;
+        if Terminated then
+          Exit;
+          
+        OtherThread := FWorkers[I];
+        if (OtherThread <> Self) and 
+           Assigned(OtherThread) and 
+           Assigned(OtherThread.LocalDeque) and
+           OtherThread.LocalDeque.TrySteal(WorkItem) then
+        begin
+          if Assigned(WorkItem) then
+          begin
+            FLocalDeque.TryPush(WorkItem);
+            Result := True;
+            Break;
+          end;
+        end;
       end;
     end;
+    
+    Inc(Attempts);
+    if not Result then
+      Sleep(1);  // Brief pause between attempts
   end;
-  if not Result then
-    WriteLn(Format('Thread %d: Failed to steal work', [ThreadID]));
 end;
 
 procedure TWorkStealingThread.Start;

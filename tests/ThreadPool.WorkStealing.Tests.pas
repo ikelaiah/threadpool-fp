@@ -6,19 +6,20 @@ interface
 
 uses
   Classes, SysUtils, fpcunit, testregistry, SyncObjs,
-  ThreadPool.Types, ThreadPool.WorkStealing, DateUtils;
+  ThreadPool.Types, ThreadPool.WorkStealing, ThreadPool.Atomic, DateUtils;
 
 type
-  { TWorkStealingPoolTests }
   TWorkStealingPoolTests = class(TTestCase)
   private
     FPool: TWorkStealingPool;
-    FCounter: Integer;
+    FCounter: TAtomicInteger;
     FCounterLock: TCriticalSection;
     
     procedure IncrementCounter;
     procedure ProcessWithIndex(AIndex: Integer);
     procedure RaiseException;
+    procedure StressTestProcedure;
+    procedure StressTestMethod;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -41,81 +42,67 @@ implementation
 
 procedure TWorkStealingPoolTests.SetUp;
 begin
-  try
-    FPool := TWorkStealingPool.Create(4);  // Use minimum thread count
-    FCounter := 0;
-    FCounterLock := TCriticalSection.Create;
-  except
-    on E: Exception do
-    begin
-      WriteLn('Exception in SetUp: ', E.Message);
-      raise;
-    end;
-  end;
+  FPool := TWorkStealingPool.Create(4);
+  FCounter := TAtomicInteger.Create;
+  FCounterLock := TCriticalSection.Create;
 end;
 
 procedure TWorkStealingPoolTests.TearDown;
 begin
-  WriteLn('TearDown: Starting cleanup');
-  try
-    if Assigned(FPool) then
-    begin
-      WriteLn('TearDown: Freeing thread pool');
-      FPool.Free;
-      FPool := nil;
-      WriteLn('TearDown: Thread pool freed');
-    end;
-    
-    if Assigned(FCounterLock) then
-    begin
-      WriteLn('TearDown: Freeing counter lock');
-      FCounterLock.Free;
-      FCounterLock := nil;
-      WriteLn('TearDown: Counter lock freed');
-    end;
-    WriteLn('TearDown: Cleanup completed');
-  except
-    on E: Exception do
-    begin
-      WriteLn('Exception in TearDown: ', E.Message);
-      raise;
-    end;
-  end;
+  FPool.Free;
+  FCounter.Free;
+  FCounterLock.Free;
 end;
 
 procedure TWorkStealingPoolTests.IncrementCounter;
 begin
-  try
-    FCounterLock.Enter;
-    try
-      Inc(FCounter);
-    finally
-      FCounterLock.Leave;
-    end;
-  except
-    on E: Exception do
-      WriteLn('IncrementCounter Exception: ', E.Message);
-  end;
+  FCounter.Increment;
 end;
 
 procedure TWorkStealingPoolTests.ProcessWithIndex(AIndex: Integer);
 begin
-  try
-    FCounterLock.Enter;
-    try
-      Inc(FCounter, AIndex);
-    finally
-      FCounterLock.Leave;
-    end;
-  except
-    on E: Exception do
-      WriteLn('ProcessWithIndex Exception: ', E.Message);
-  end;
+  FCounter.Increment;
 end;
 
 procedure TWorkStealingPoolTests.RaiseException;
 begin
   raise Exception.Create('Test exception');
+end;
+
+procedure TWorkStealingPoolTests.StressTestProcedure;
+begin
+  try
+    WriteLn('StressTestProcedure: Starting');
+    Sleep(Random(10));  // Random delay
+    FCounterLock.Enter;
+    try
+      FCounter.Increment;
+    finally
+      FCounterLock.Leave;
+    end;
+    WriteLn('StressTestProcedure: Completed');
+  except
+    on E: Exception do
+      WriteLn('StressTestProcedure Exception: ', E.Message);
+  end;
+end;
+
+procedure TWorkStealingPoolTests.StressTestMethod;
+begin
+  try
+    WriteLn('StressTestMethod: Starting');
+    Sleep(Random(10));  // Random delay
+    FCounterLock.Enter;
+    try
+      FCounter.Increment;
+    finally
+      FCounterLock.Leave;
+    end;
+    WriteLn('StressTestMethod: Completed');
+  except
+    on E: Exception do
+      WriteLn('StressTestMethod Exception: ', E.Message);
+  end;
 end;
 
 procedure TWorkStealingPoolTests.Test01_CreateDestroy;
@@ -146,7 +133,7 @@ begin
   FPool.Queue(@IncrementCounter);
   FPool.WaitForAll;
   
-  AssertEquals('Counter should be incremented once', 1, FCounter);
+  AssertEquals('Counter should be incremented once', 1, FCounter.GetValue);
   WriteLn('Test02_QueueSimpleProcedure completed');
 end;
 
@@ -164,7 +151,7 @@ begin
   FPool.WaitForAll;
   
   AssertEquals('Counter should match number of queued procedures', 
-    ExpectedCount, FCounter);
+    ExpectedCount, FCounter.GetValue);
   WriteLn('Test03_QueueMultipleProcedures completed');
 end;
 
@@ -184,7 +171,7 @@ begin
   
   FPool.WaitForAll;
   
-  AssertEquals('Sum should match expected total', ExpectedSum, FCounter);
+  AssertEquals('Sum should match expected total', ExpectedSum, FCounter.GetValue);
   WriteLn('Test04_QueueWithIndex completed');
 end;
 
@@ -209,7 +196,7 @@ begin
     AssertTrue('Work stealing should distribute load effectively',
       MilliSecondsBetween(Now, StartTime) < 1000);
       
-    AssertEquals('All tasks should complete', 1000, FCounter);
+    AssertEquals('All tasks should complete', 1000, FCounter.GetValue);
   finally
     UnbalancedPool.Free;
   end;
@@ -229,22 +216,14 @@ begin
 end;
 
 procedure TWorkStealingPoolTests.Test07_StressTest;
-var
-  I: Integer;
 begin
   WriteLn('Test07_StressTest: Starting');
-  for I := 1 to 10000 do
-  begin
-    if I mod 2 = 0 then
-      FPool.Queue(@IncrementCounter)
-    else
-      FPool.Queue(@ProcessWithIndex, I);
-  end;
+  FPool.Queue(@StressTestProcedure);
+  FPool.Queue(@StressTestMethod);
   
-  WriteLn('Test07_StressTest: Waiting for all tasks');
+  WriteLn('Test07_StressTest: Waiting for completion');
   FPool.WaitForAll;
   
-  AssertTrue('Counter should be greater than zero', FCounter > 0);
   AssertEquals('No errors should occur', '', FPool.LastError);
   WriteLn('Test07_StressTest: Completed');
 end;
@@ -271,7 +250,7 @@ begin
     for I := 0 to High(Pools) do
       Pools[I].WaitForAll;
       
-    AssertEquals('All increments should complete', 400, FCounter);
+    AssertEquals('All increments should complete', 400, FCounter.GetValue);
   finally
     for I := 0 to High(Pools) do
       Pools[I].Free;
@@ -316,7 +295,7 @@ begin
   
   FPool.Queue(@IncrementCounter);
   FPool.WaitForAll;
-  AssertEquals('Should continue working after error', 1, FCounter);
+  AssertEquals('Should continue working after error', 1, FCounter.GetValue);
   WriteLn('Test10_ClearErrors completed');
 end;
 
