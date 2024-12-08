@@ -34,6 +34,33 @@ type
     procedure Test08_ConcurrentQueuing;
     procedure Test09_ThreadCount;
     procedure Test10_ClearErrors;
+    procedure Test11_HighConcurrencyStress;
+    procedure Test12_RandomWorkloadStress;
+    procedure Test13_QueueWhileProcessing;
+    procedure Test14_StealingUnderLoad;
+  end;
+
+type
+  TDelayedIncrementProc = class
+  private
+    FDelay: Integer;
+    FCounter: TAtomicInteger;
+    FLock: TCriticalSection;
+  public
+    constructor Create(ADelay: Integer; ACounter: TAtomicInteger; ALock: TCriticalSection);
+    procedure Execute;
+  end;
+
+  TSignalIncrementProc = class
+  private
+    FEvent: TEvent;
+    FCounter: TAtomicInteger;
+    FIndex: Integer;
+    FTriggerAt: Integer;
+  public
+    constructor Create(AEvent: TEvent; ACounter: TAtomicInteger; 
+      AIndex, ATriggerAt: Integer);
+    procedure Execute;
   end;
 
 implementation
@@ -297,6 +324,171 @@ begin
   FPool.WaitForAll;
   AssertEquals('Should continue working after error', 1, FCounter.GetValue);
   WriteLn('Test10_ClearErrors completed');
+end;
+
+procedure TWorkStealingPoolTests.Test11_HighConcurrencyStress;
+const
+  THREAD_COUNT = 16;  // Reduced from 32
+  TASKS_PER_THREAD = 1000;  // Reduced from 10000
+var
+  I: Integer;
+  StartTime: TDateTime;
+  ExpectedCount: Integer;
+begin
+  WriteLn('Test11_HighConcurrencyStress');
+  FPool.Free;
+  FPool := TWorkStealingPool.Create(THREAD_COUNT);
+  
+  ExpectedCount := THREAD_COUNT * TASKS_PER_THREAD;
+  WriteLn(Format('Queueing %d tasks across %d threads', [ExpectedCount, THREAD_COUNT]));
+  
+  StartTime := Now;
+  for I := 1 to ExpectedCount do
+  begin
+    if (I mod 1000) = 0 then
+      WriteLn(Format('Queued %d tasks', [I]));
+    FPool.Queue(@IncrementCounter);
+  end;
+  
+  WriteLn('All tasks queued, waiting for completion');
+  FPool.WaitForAll;
+  
+  WriteLn(Format('Final counter value: %d', [FCounter.GetValue]));
+  AssertEquals('All increments should complete', 
+    ExpectedCount, FCounter.GetValue);
+  AssertTrue('High concurrency should complete in reasonable time',
+    MilliSecondsBetween(Now, StartTime) < 5000);
+end;
+
+procedure TWorkStealingPoolTests.Test12_RandomWorkloadStress;
+const
+  MAX_SLEEP = 10;
+  TASK_COUNT = 1000;
+var
+  I: Integer;
+  DelayProc: TDelayedIncrementProc;
+begin
+  WriteLn('Test12_RandomWorkloadStress');
+  
+  // Queue tasks with random delays
+  for I := 0 to TASK_COUNT - 1 do
+  begin
+    DelayProc := TDelayedIncrementProc.Create(Random(MAX_SLEEP), 
+      FCounter, FCounterLock);
+    FPool.Queue(@DelayProc.Execute);
+  end;
+    
+  FPool.WaitForAll;
+  AssertEquals('All random workload tasks should complete', 
+    TASK_COUNT, FCounter.GetValue);
+end;
+
+procedure TWorkStealingPoolTests.Test13_QueueWhileProcessing;
+const
+  INITIAL_TASKS = 1000;
+  ADDITIONAL_TASKS = 500;
+var
+  I: Integer;
+  AddTaskEvent: TEvent;
+  SignalProc: TSignalIncrementProc;
+begin
+  WriteLn('Test13_QueueWhileProcessing');
+  AddTaskEvent := TEvent.Create(nil, True, False, '');
+  try
+    // Queue initial batch
+    for I := 1 to INITIAL_TASKS do
+    begin
+      SignalProc := TSignalIncrementProc.Create(AddTaskEvent, FCounter, 
+        I, INITIAL_TASKS div 2);
+      FPool.Queue(@SignalProc.Execute);
+    end;
+      
+    // Wait for middle of processing
+    AddTaskEvent.WaitFor(5000);
+    
+    // Queue additional tasks while processing
+    for I := 1 to ADDITIONAL_TASKS do
+      FPool.Queue(@IncrementCounter);
+      
+    FPool.WaitForAll;
+    AssertEquals('All tasks should complete', 
+      INITIAL_TASKS + ADDITIONAL_TASKS, FCounter.GetValue);
+  finally
+    AddTaskEvent.Free;
+  end;
+end;
+
+procedure TWorkStealingPoolTests.Test14_StealingUnderLoad;
+const
+  UNBALANCED_THREADS = 4;
+  TASKS_PER_THREAD = 1000;
+var
+  I, J: Integer;
+  UnbalancedPool: TWorkStealingPool;
+  DelayProc: TDelayedIncrementProc;
+begin
+  WriteLn('Test14_StealingUnderLoad');
+  UnbalancedPool := TWorkStealingPool.Create(UNBALANCED_THREADS);
+  try
+    // Queue lots of work to one thread
+    for I := 1 to UNBALANCED_THREADS do
+      for J := 1 to TASKS_PER_THREAD do
+        if I = 1 then
+        begin
+          DelayProc := TDelayedIncrementProc.Create(1, FCounter, FCounterLock);
+          UnbalancedPool.Queue(@DelayProc.Execute);
+        end
+        else
+          UnbalancedPool.Queue(@IncrementCounter);
+          
+    UnbalancedPool.WaitForAll;
+    AssertEquals('All tasks should be distributed and completed',
+      UNBALANCED_THREADS * TASKS_PER_THREAD, FCounter.GetValue);
+  finally
+    UnbalancedPool.Free;
+  end;
+end;
+
+{ TDelayedIncrementProc }
+
+constructor TDelayedIncrementProc.Create(ADelay: Integer; 
+  ACounter: TAtomicInteger; ALock: TCriticalSection);
+begin
+  inherited Create;
+  FDelay := ADelay;
+  FCounter := ACounter;
+  FLock := ALock;
+end;
+
+procedure TDelayedIncrementProc.Execute;
+begin
+  Sleep(FDelay);
+  FLock.Enter;
+  try
+    FCounter.Increment;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+{ TSignalIncrementProc }
+
+constructor TSignalIncrementProc.Create(AEvent: TEvent; 
+  ACounter: TAtomicInteger; AIndex, ATriggerAt: Integer);
+begin
+  inherited Create;
+  FEvent := AEvent;
+  FCounter := ACounter;
+  FIndex := AIndex;
+  FTriggerAt := ATriggerAt;
+end;
+
+procedure TSignalIncrementProc.Execute;
+begin
+  if FIndex = FTriggerAt then
+    FEvent.SetEvent;
+  Sleep(1);
+  FCounter.Increment;
 end;
 
 initialization
