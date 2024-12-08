@@ -20,6 +20,7 @@ type
     procedure RaiseException;
     procedure StressTestProcedure;
     procedure StressTestMethod;
+    procedure ExecuteDelayedWork(AIndex: Integer);
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -41,7 +42,12 @@ type
   end;
 
 type
-  TDelayedIncrementProc = class
+  IDelayedWork = interface
+    ['{2D97A5E1-F2C8-4A64-9F25-2E5C13F3C2E8}']
+    procedure Execute;
+  end;
+
+  TDelayedIncrementProc = class(TInterfacedObject, IDelayedWork)
   private
     FDelay: Integer;
     FCounter: TAtomicInteger;
@@ -51,7 +57,7 @@ type
     procedure Execute;
   end;
 
-  TSignalIncrementProc = class
+  TSignalIncrementProc = class(TInterfacedObject, IDelayedWork)
   private
     FEvent: TEvent;
     FCounter: TAtomicInteger;
@@ -60,6 +66,14 @@ type
   public
     constructor Create(AEvent: TEvent; ACounter: TAtomicInteger; 
       AIndex, ATriggerAt: Integer);
+    procedure Execute;
+  end;
+
+  TWorkItemWrapper = class(TInterfacedObject, IDelayedWork)
+  private
+    FWork: IDelayedWork;
+  public
+    constructor Create(AWork: IDelayedWork);
     procedure Execute;
   end;
 
@@ -425,19 +439,14 @@ const
 var
   I, J: Integer;
   UnbalancedPool: TWorkStealingPool;
-  DelayProc: TDelayedIncrementProc;
 begin
   WriteLn('Test14_StealingUnderLoad');
   UnbalancedPool := TWorkStealingPool.Create(UNBALANCED_THREADS);
   try
-    // Queue lots of work to one thread
     for I := 1 to UNBALANCED_THREADS do
       for J := 1 to TASKS_PER_THREAD do
         if I = 1 then
-        begin
-          DelayProc := TDelayedIncrementProc.Create(1, FCounter, FCounterLock);
-          UnbalancedPool.Queue(@DelayProc.Execute);
-        end
+          UnbalancedPool.Queue(@ExecuteDelayedWork, J)
         else
           UnbalancedPool.Queue(@IncrementCounter);
           
@@ -489,6 +498,28 @@ begin
     FEvent.SetEvent;
   Sleep(1);
   FCounter.Increment;
+end;
+
+{ TWorkItemWrapper }
+
+constructor TWorkItemWrapper.Create(AWork: IDelayedWork);
+begin
+  inherited Create;
+  FWork := AWork;
+end;
+
+procedure TWorkItemWrapper.Execute;
+begin
+  if Assigned(FWork) then
+    FWork.Execute;
+end;
+
+procedure TWorkStealingPoolTests.ExecuteDelayedWork(AIndex: Integer);
+var
+  Work: IDelayedWork;
+begin
+  Work := TDelayedIncrementProc.Create(1, FCounter, FCounterLock);
+  Work.Execute;
 end;
 
 initialization
