@@ -173,13 +173,16 @@ end;
 
 destructor TWorkStealingDeque.Destroy;
 begin
-  FCasLock.Enter;
-  try
-    Clear;  // Make sure all items are cleared
-    SetLength(FItems, 0);  // Explicitly clear array
-  finally
-    FCasLock.Leave;
-    FCasLock.Free;
+  if Assigned(FCasLock) then
+  begin
+    FCasLock.Enter;
+    try
+      Clear;  // Make sure all items are cleared
+      SetLength(FItems, 0);  // Explicitly clear array
+    finally
+      FCasLock.Leave;
+      FreeAndNil(FCasLock);  // Use FreeAndNil instead of Free
+    end;
   end;
   inherited;
 end;
@@ -209,16 +212,24 @@ end;
 
 function TWorkStealingDeque.TryPush(AWorkItem: IWorkItem): Boolean;
 var
-  B, T: NativeUInt;
+  B: NativeUInt;
 begin
-  B := FBottom;
-  T := FTop;
-  if (B - T) > FMask then
-    Grow;
+  Result := False;
+  if not Assigned(AWorkItem) then
+    Exit;
     
-  FItems[B and FMask] := AWorkItem;
-  FBottom := B + 1;
-  Result := True;
+  FCasLock.Enter;
+  try
+    B := FBottom;
+    if (B - FTop) > FMask then
+      Grow;
+      
+    FItems[B and FMask] := AWorkItem;
+    FBottom := B + 1;
+    Result := True;
+  finally
+    FCasLock.Leave;
+  end;
 end;
 
 function TWorkStealingDeque.TryPop(out AWorkItem: IWorkItem): Boolean;
@@ -340,15 +351,12 @@ destructor TWorkStealingThread.Destroy;
 begin
   if Assigned(FLocalDeque) then
   begin
-    FLocalDeque.Clear;  // Clear any remaining work items
-    FLocalDeque.Free;
-    FLocalDeque := nil;
+    FreeAndNil(FLocalDeque); // This will trigger TWorkStealingDeque.Destroy
   end;
   
   if Assigned(FWorkEvent) then
   begin
-    FWorkEvent.Free;
-    FWorkEvent := nil;
+    FreeAndNil(FWorkEvent);
   end;
   
   inherited;
@@ -366,23 +374,19 @@ begin
     begin
       if Assigned(WorkItem) then // Double-check we got valid work
       begin
-        WriteLn(Format('Thread %d: Got work item', [ThreadID]));
-        if not Terminated then
-        begin
-          try
-            WriteLn(Format('Thread %d: Executing work item', [ThreadID]));
-            WorkItem.Execute;
-            WriteLn(Format('Thread %d: Work item executed', [ThreadID]));
-            TWorkStealingPool(FPool).DecrementWorkCount;
-            WriteLn(Format('Thread %d: Work count decremented', [ThreadID]));
-          except
-            on E: Exception do
-              TWorkStealingPool(FPool).HandleError(
-                Format('Thread %d: %s', [ThreadID, E.Message]));
-          end;
+        try
+          WriteLn(Format('Thread %d: Executing work item', [ThreadID]));
+          WorkItem.Execute;
+          WriteLn(Format('Thread %d: Work item executed', [ThreadID]));
+          TWorkStealingPool(FPool).DecrementWorkCount;
+          WriteLn(Format('Thread %d: Work count decremented', [ThreadID]));
+        except
+          on E: Exception do
+            TWorkStealingPool(FPool).HandleError(
+              Format('Thread %d: %s', [ThreadID, E.Message]));
         end;
+        WorkItem := nil; // Clear reference inside the if block
       end;
-      WorkItem := nil; // Explicitly release interface
     end
     else if not Terminated then
     begin
@@ -394,6 +398,8 @@ begin
     end;
   end;
   WriteLn(Format('Thread %d: Terminating', [ThreadID]));
+  // Ensure WorkItem is nil before thread terminates
+  WorkItem := nil;
 end;
 
 function TWorkStealingThread.TryGetWork(out AWorkItem: IWorkItem): Boolean;
@@ -407,44 +413,59 @@ begin
 end;
 
 function TWorkStealingThread.TryStealWork: Boolean;
+const
+  MAX_STEAL_ATTEMPTS = 5;
+  STEAL_RETRY_DELAY = 1;   // milliseconds
 var
   WorkItem: IWorkItem;
   OtherThread: TWorkStealingThread;
+  Pool: TWorkStealingPool;
   I, Attempts: Integer;
+  LocalTerminated: Boolean;
 begin
   Result := False;
   Attempts := 0;
-  WorkItem := nil; // Initialize interface
+  WorkItem := nil;
+  Pool := TWorkStealingPool(FPool);
   
-  while (not Result) and (not Terminated) and (Attempts < 3) do
+  // Cache terminated state to avoid race conditions
+  LocalTerminated := Terminated;
+  
+  while (not Result) and (not LocalTerminated) and (Attempts < MAX_STEAL_ATTEMPTS) do
   begin
-    with TWorkStealingPool(FPool) do
+    for I := 0 to Length(Pool.FWorkers) - 1 do
     begin
-      for I := 0 to Length(FWorkers) - 1 do
-      begin
-        if Terminated then
-          Exit;
-          
-        OtherThread := FWorkers[I];
-        if (OtherThread <> Self) and 
-           Assigned(OtherThread) and 
-           Assigned(OtherThread.LocalDeque) then
+      if LocalTerminated then
+        Exit;
+        
+      OtherThread := Pool.FWorkers[I];
+      if (OtherThread = nil) or (OtherThread = Self) or 
+         (OtherThread.LocalDeque = nil) then
+        Continue;
+        
+      try
+        WorkItem := nil; // Reset interface before steal attempt
+        if OtherThread.LocalDeque.TrySteal(WorkItem) then
         begin
-          WorkItem := nil; // Reset interface before steal attempt
-          if OtherThread.LocalDeque.TrySteal(WorkItem) and Assigned(WorkItem) then
+          if Assigned(WorkItem) then
           begin
             FLocalDeque.TryPush(WorkItem);
             Result := True;
             Break;
           end;
         end;
+      except
+        // Safely handle any exceptions during stealing
+        WorkItem := nil;
+        Continue;
       end;
     end;
     
     Inc(Attempts);
     if not Result then
-      Sleep(1);
+      Sleep(STEAL_RETRY_DELAY);
   end;
+  
   WorkItem := nil; // Final cleanup
 end;
 
@@ -460,7 +481,10 @@ end;
 
 procedure TWorkStealingThread.Terminate;
 begin
-  inherited Terminate;  // Call inherited first
+  if FTerminating then
+    Exit; // Prevent multiple termination attempts
+    
+  inherited Terminate;
   FTerminating := True;
   if Assigned(FWorkEvent) then
   begin
