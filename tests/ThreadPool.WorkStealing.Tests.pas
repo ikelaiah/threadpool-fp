@@ -222,26 +222,38 @@ var
   StartTime: TDateTime;
   UnbalancedPool: TWorkStealingPool;
 begin
-  WriteLn('Test05_WorkStealing');
-  UnbalancedPool := TWorkStealingPool.Create(4);
+  ThreadLogger.Enabled := True;
   try
-    // Queue many tasks to a single worker
-    StartTime := Now;
-    
-    for I := 1 to 1000 do
-      UnbalancedPool.Queue(@IncrementCounter);
+    WriteLn('Test05_WorkStealing');
+    UnbalancedPool := TWorkStealingPool.Create(4);
+    try
+      // Queue many tasks to a single worker
+      StartTime := Now;
       
-    UnbalancedPool.WaitForAll;
-    
-    // Work stealing should help complete faster than sequential
-    AssertTrue('Work stealing should distribute load effectively',
-      MilliSecondsBetween(Now, StartTime) < 1000);
+      for I := 1 to 1000 do
+      begin
+        ThreadLogger.Log(Format('Queueing task %d to single worker', [I]));
+        UnbalancedPool.Queue(@IncrementCounter);
+        if (I mod 100) = 0 then
+          ThreadLogger.Log(Format('Milestone: Queued %d tasks', [I]));
+      end;
       
-    AssertEquals('All tasks should complete', 1000, FCounter.GetValue);
+      ThreadLogger.Log('All tasks queued, waiting for completion');
+      UnbalancedPool.WaitForAll;
+      
+      ThreadLogger.Log(Format('Final counter value: %d', [FCounter.GetValue]));
+      // Work stealing should help complete faster than sequential
+      AssertTrue('Work stealing should distribute load effectively',
+        MilliSecondsBetween(Now, StartTime) < 1000);
+        
+      AssertEquals('All tasks should complete', 1000, FCounter.GetValue);
+    finally
+      UnbalancedPool.Free;
+    end;
+    WriteLn('Test05_WorkStealing completed');
   finally
-    UnbalancedPool.Free;
+    ThreadLogger.Enabled := False;
   end;
-  WriteLn('Test05_WorkStealing completed');
 end;
 
 procedure TWorkStealingPoolTests.Test06_ExceptionHandling;
@@ -359,8 +371,10 @@ begin
   StartTime := Now;
   for I := 1 to ExpectedCount do
   begin
+    ThreadLogger.Log(Format('Queueing task %d', [I]));
+    FPool.Queue(@ExecuteDelayedWork, I);
     if (I mod 1000) = 0 then
-      WriteLn(Format('Queued %d tasks', [I]));
+      ThreadLogger.Log(Format('Milestone: Queued %d tasks', [I]));
     FPool.Queue(@ExecuteDelayedWork, I);  // Use our synchronized method
   end;
   
@@ -401,32 +415,23 @@ procedure TWorkStealingPoolTests.Test13_QueueWhileProcessing;
 const
   INITIAL_TASKS = 1000;
   ADDITIONAL_TASKS = 500;
-var
-  I: Integer;
-  AddTaskEvent: TEvent;
 begin
-  WriteLn('Test13_QueueWhileProcessing');
-  AddTaskEvent := TEvent.Create(nil, True, False, '');
+  ThreadLogger.Enabled := True;
   try
-    // Queue initial batch with signal in the middle
-    for I := 1 to INITIAL_TASKS do
-      if I = INITIAL_TASKS div 2 then
-        FPool.Queue(@ExecuteDelayedWork, I)  // Use our method that handles cleanup
-      else
-        FPool.Queue(@IncrementCounter);
-      
-    // Wait for middle of processing
-    AddTaskEvent.WaitFor(5000);
+    ThreadLogger.Log('Starting initial task queue');
+    QueueDelayedTasks(INITIAL_TASKS);
     
-    // Queue additional tasks while processing
-    for I := 1 to ADDITIONAL_TASKS do
-      FPool.Queue(@IncrementCounter);
-      
+    ThreadLogger.Log('Queueing additional tasks while processing');
+    QueueDelayedTasks(ADDITIONAL_TASKS);
+    
+    ThreadLogger.Log('Waiting for all tasks to complete');
     FPool.WaitForAll;
+    
+    ThreadLogger.Log(Format('Final counter value: %d', [FCounter.GetValue]));
     AssertEquals('All tasks should complete', 
       INITIAL_TASKS + ADDITIONAL_TASKS, FCounter.GetValue);
   finally
-    AddTaskEvent.Free;
+    ThreadLogger.Enabled := False;
   end;
 end;
 

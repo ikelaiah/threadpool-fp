@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, SyncObjs, Math, 
-  ThreadPool.Types;
+  ThreadPool.Types, ThreadPool.Logging;
 
 type
   { Custom exceptions }
@@ -366,50 +366,50 @@ procedure TWorkStealingThread.Execute;
 var
   WorkItem: IWorkItem;
 begin
-  WriteLn(Format('Thread %d: Starting', [ThreadID]));
+  ThreadLogger.Log(Format('Thread %d: Starting', [ThreadID]));
   while not Terminated do
   begin
     WorkItem := nil; // Ensure clean interface state
     if TryGetWork(WorkItem) then
     begin
-      if Assigned(WorkItem) then // Double-check we got valid work
+      if Assigned(WorkItem) then
       begin
         try
-          WriteLn(Format('Thread %d: Executing work item', [ThreadID]));
+          ThreadLogger.Log(Format('Thread %d: Executing work item', [ThreadID]));
           WorkItem.Execute;
-          WriteLn(Format('Thread %d: Work item executed', [ThreadID]));
+          ThreadLogger.Log(Format('Thread %d: Work item executed', [ThreadID]));
           TWorkStealingPool(FPool).DecrementWorkCount;
-          WriteLn(Format('Thread %d: Work count decremented', [ThreadID]));
+          ThreadLogger.Log(Format('Thread %d: Work count decremented', [ThreadID]));
         except
           on E: Exception do
             TWorkStealingPool(FPool).HandleError(
               Format('Thread %d: %s', [ThreadID, E.Message]));
         end;
-        WorkItem := nil; // Clear reference inside the if block
+        WorkItem := nil;
       end;
     end
     else if not Terminated then
     begin
       if not TryStealWork then
       begin
-        WriteLn(Format('Thread %d: No work found, waiting', [ThreadID]));
+        ThreadLogger.Log(Format('Thread %d: No work found, waiting', [ThreadID]));
         FWorkEvent.WaitFor(100);
       end;
     end;
   end;
-  WriteLn(Format('Thread %d: Terminating', [ThreadID]));
+  ThreadLogger.Log(Format('Thread %d: Terminating', [ThreadID]));
   // Ensure WorkItem is nil before thread terminates
   WorkItem := nil;
 end;
 
 function TWorkStealingThread.TryGetWork(out AWorkItem: IWorkItem): Boolean;
 begin
-  WriteLn(Format('Thread %d: Attempting to get work', [ThreadID]));
+  ThreadLogger.Log(Format('Thread %d: Attempting to get work', [ThreadID]));
   Result := FLocalDeque.TryPop(AWorkItem);
   if Result then
-    WriteLn(Format('Thread %d: Got work from local queue', [ThreadID]))
+    ThreadLogger.Log(Format('Thread %d: Got work from local queue', [ThreadID]))
   else
-    WriteLn(Format('Thread %d: Local queue empty', [ThreadID]));
+    ThreadLogger.Log(Format('Thread %d: Local queue empty', [ThreadID]));
 end;
 
 function TWorkStealingThread.TryStealWork: Boolean;
@@ -576,18 +576,18 @@ destructor TWorkStealingPool.Destroy;
 var
   I: Integer;
 begin
-  WriteLn('ThreadPool.Destroy: Starting cleanup');
+  ThreadLogger.Log('ThreadPool.Destroy: Starting cleanup');
   try
     // Signal termination first
     if Assigned(FWorkLock) then
     begin
-      WriteLn('ThreadPool.Destroy: Signaling thread termination');
+      ThreadLogger.Log('ThreadPool.Destroy: Signaling thread termination');
       FWorkLock.Enter;
       try
         for I := Low(FWorkers) to High(FWorkers) do
           if Assigned(FWorkers[I]) then
           begin
-            WriteLn(Format('ThreadPool.Destroy: Terminating worker %d', [I]));
+            ThreadLogger.Log(Format('ThreadPool.Destroy: Terminating worker %d', [I]));
             FWorkers[I].Terminate;
             FWorkers[I].SignalWork;  // Wake up thread
           end;
@@ -599,31 +599,31 @@ begin
     // Wait for and free threads
     if Length(FWorkers) > 0 then
     begin
-      WriteLn(Format('ThreadPool.Destroy: Cleaning up %d workers', [Length(FWorkers)]));
+      ThreadLogger.Log(Format('ThreadPool.Destroy: Cleaning up %d workers', [Length(FWorkers)]));
       for I := 0 to High(FWorkers) do
         if Assigned(FWorkers[I]) then
         begin
           try
-            WriteLn(Format('ThreadPool.Destroy: Waiting for worker %d', [I]));
+            ThreadLogger.Log(Format('ThreadPool.Destroy: Waiting for worker %d', [I]));
             FWorkers[I].WaitFor;
-            WriteLn(Format('ThreadPool.Destroy: Freeing worker %d', [I]));
+            ThreadLogger.Log(Format('ThreadPool.Destroy: Freeing worker %d', [I]));
             FWorkers[I].Free;
             FWorkers[I] := nil;  // Clear reference
           except
-            WriteLn(Format('ThreadPool.Destroy: Error cleaning up worker %d', [I]));
+            ThreadLogger.Log(Format('ThreadPool.Destroy: Error cleaning up worker %d', [I]));
           end;
         end;
     end;
     SetLength(FWorkers, 0);  // Clear array
 
     // Clean up synchronization objects
-    WriteLn('ThreadPool.Destroy: Cleaning up synchronization objects');
+    ThreadLogger.Log('ThreadPool.Destroy: Cleaning up synchronization objects');
     FWorkEvent.Free;
     FWorkLock.Free;
     FErrorLock.Free;
-    WriteLn('ThreadPool.Destroy: Cleanup completed');
+    ThreadLogger.Log('ThreadPool.Destroy: Cleanup completed');
   except
-    WriteLn('ThreadPool.Destroy: Error during cleanup');
+    ThreadLogger.Log('ThreadPool.Destroy: Error during cleanup');
   end;
 
   inherited;
@@ -733,7 +733,9 @@ begin
     WorkItem := TWorkItemMethod.Create(AMethod);
     FWorkLock.Enter;
     try
-      Inc(FWorkCount);
+      ThreadLogger.Log(Format('Adding work, count before: %d', [FWorkCount]));
+      InterlockedIncrement(FWorkCount);
+      ThreadLogger.Log(Format('Work added, count after: %d', [FWorkCount]));
       DistributeWork(WorkItem);
     finally
       FWorkLock.Leave;
@@ -756,7 +758,9 @@ begin
     WorkItem := TWorkItemProcedureIndex.Create(AProcedure, AIndex);
     FWorkLock.Enter;
     try
-      Inc(FWorkCount);
+      ThreadLogger.Log(Format('[%d] Adding work, count before: %d', [GetCurrentThreadId, FWorkCount]));
+      InterlockedIncrement(FWorkCount);
+      ThreadLogger.Log(Format('[%d] Work added, count after: %d', [GetCurrentThreadId, FWorkCount]));
       DistributeWork(WorkItem);
     finally
       FWorkLock.Leave;
@@ -778,7 +782,9 @@ begin
   WorkItem := TWorkItemMethodIndex.Create(AMethod, AIndex);
   FWorkLock.Enter;
   try
-    Inc(FWorkCount);
+    ThreadLogger.Log(Format('[%d] Adding work, count before: %d', [GetCurrentThreadId, FWorkCount]));
+    InterlockedIncrement(FWorkCount);
+    ThreadLogger.Log(Format('[%d] Work added, count after: %d', [GetCurrentThreadId, FWorkCount]));
     DistributeWork(WorkItem);
   finally
     FWorkLock.Leave;
@@ -791,18 +797,18 @@ var
   AllThreadsIdle: Boolean;
   I: Integer;
 begin
-  WriteLn('WaitForAll: Starting wait');
+  ThreadLogger.Log('WaitForAll: Starting wait');
   TimeoutCounter := 0;
   
   while True do
   begin
     FWorkLock.Enter;
     try
-      WriteLn(Format('WaitForAll: Work count = %d', [FWorkCount]));
+      ThreadLogger.Log(Format('WaitForAll: Work count = %d', [FWorkCount]));
       
       if FWorkCount = 0 then
       begin
-        WriteLn('WaitForAll: All work completed');
+        ThreadLogger.Log('WaitForAll: All work completed');
         Break;
       end;
       
@@ -820,12 +826,12 @@ begin
       if AllThreadsIdle then
       begin
         Inc(TimeoutCounter);
-        WriteLn(Format('WaitForAll: All threads idle but work count = %d (timeout: %d)', 
+        ThreadLogger.Log(Format('WaitForAll: All threads idle but work count = %d (timeout: %d)', 
           [FWorkCount, TimeoutCounter]));
         
         if TimeoutCounter > 10 then
         begin
-          WriteLn('WaitForAll: Possible deadlock detected, resetting work count');
+          ThreadLogger.Log('WaitForAll: Possible deadlock detected, resetting work count');
           FWorkCount := 0;
           Break;
         end;
@@ -836,7 +842,7 @@ begin
       FWorkLock.Leave;
     end;
     
-    WriteLn('WaitForAll: Waiting for event');
+    ThreadLogger.Log('WaitForAll: Waiting for event');
     FWorkEvent.WaitFor(100);
     FWorkEvent.ResetEvent;
   end;
@@ -944,7 +950,9 @@ begin
   try
     if FWorkCount > 0 then
     begin
-      Dec(FWorkCount);
+      ThreadLogger.Log(Format('[%d] Completing work, count before: %d', [GetCurrentThreadId, FWorkCount]));
+      InterlockedDecrement(FWorkCount);
+      ThreadLogger.Log(Format('[%d] Work completed, count after: %d', [GetCurrentThreadId, FWorkCount]));
       if FWorkCount = 0 then
         FWorkEvent.SetEvent;
     end;
