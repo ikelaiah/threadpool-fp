@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, fpcunit, testregistry, SyncObjs,
-  ThreadPool.Types, ThreadPool.WorkStealing, ThreadPool.Atomic, DateUtils;
+  ThreadPool.Types, ThreadPool.WorkStealing, ThreadPool.Atomic, DateUtils, ThreadPool.Logging;
 
 type
   TWorkStealingPoolTests = class(TTestCase)
@@ -415,14 +415,20 @@ procedure TWorkStealingPoolTests.Test13_QueueWhileProcessing;
 const
   INITIAL_TASKS = 1000;
   ADDITIONAL_TASKS = 500;
+var
+  I: Integer;
 begin
   ThreadLogger.Enabled := True;
   try
+    // Queue initial batch
     ThreadLogger.Log('Starting initial task queue');
-    QueueDelayedTasks(INITIAL_TASKS);
-    
+    for I := 1 to INITIAL_TASKS do
+      FPool.Queue(@ExecuteDelayedWork, I);
+      
+    // Queue additional while processing
     ThreadLogger.Log('Queueing additional tasks while processing');
-    QueueDelayedTasks(ADDITIONAL_TASKS);
+    for I := 1 to ADDITIONAL_TASKS do
+      FPool.Queue(@ExecuteDelayedWork, I);
     
     ThreadLogger.Log('Waiting for all tasks to complete');
     FPool.WaitForAll;
