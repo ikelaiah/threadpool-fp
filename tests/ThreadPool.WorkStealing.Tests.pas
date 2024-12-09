@@ -372,18 +372,16 @@ begin
   for I := 1 to ExpectedCount do
   begin
     ThreadLogger.Log(Format('Queueing task %d', [I]));
-    FPool.Queue(@ExecuteDelayedWork, I);
+    FPool.Queue(@ExecuteDelayedWork, I);  // Queue each task only once
     if (I mod 1000) = 0 then
       ThreadLogger.Log(Format('Milestone: Queued %d tasks', [I]));
-    FPool.Queue(@ExecuteDelayedWork, I);  // Use our synchronized method
   end;
   
   WriteLn('All tasks queued, waiting for completion');
   FPool.WaitForAll;
   
   WriteLn(Format('Final counter value: %d', [FCounter.GetValue]));
-  AssertEquals('All increments should complete', 
-    ExpectedCount, FCounter.GetValue);
+  AssertEquals('All increments should complete', ExpectedCount, FCounter.GetValue);
 end;
 
 procedure TWorkStealingPoolTests.Test12_RandomWorkloadStress;
