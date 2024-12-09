@@ -5,12 +5,19 @@ unit ThreadPool.WorkStealing;
 interface
 
 uses
-  Classes, SysUtils, SyncObjs, Math, 
+  Classes, SysUtils, SyncObjs, Math,
   ThreadPool.Types, ThreadPool.Logging;
 
 type
   { Custom exceptions }
   EThreadPool = class(Exception);
+
+  { Atomic type definition based on architecture }
+  {$IF Defined(CPU64)}
+  TAtomicType = Int64;
+  {$ELSE}
+  TAtomicType = LongWord;
+  {$ENDIF}
 
   { Work item implementations }
   TWorkItemBase = class(TInterfacedObject, IWorkItem)
@@ -70,8 +77,8 @@ type
   private
     FItems: array of IWorkItem;
     FMask: NativeUInt;
-    FBottom: NativeUInt;  // Push/Pop end (thread-local)
-    FTop: NativeUInt;     // Steal end (shared)
+    FBottom: TAtomicType;  // Push/Pop end (thread-local)
+    FTop: TAtomicType;     // Steal end (shared)
     FCasLock: TCriticalSection;
     
     procedure Grow;
@@ -155,10 +162,22 @@ type
     property ThreadCount: Integer read GetThreadCount;
   end;
 
-function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
+function CompareAndSwap(var Target: TAtomicType; OldValue, NewValue: TAtomicType): Boolean;
 
 implementation
 
+{ CompareAndSwap Implementation }
+
+function CompareAndSwap(var Target: TAtomicType; OldValue, NewValue: TAtomicType): Boolean;
+begin
+  {$IF Defined(CPU64)}
+    // Use InterlockedCompareExchange64 for 64-bit systems
+    Result := InterlockedCompareExchange64(Target, Int64(NewValue), Int64(OldValue)) = Int64(OldValue);
+  {$ELSE}
+    // Use InterlockedCompareExchange for 32-bit systems
+    Result := InterlockedCompareExchange(Target, NewValue, OldValue) = OldValue;
+  {$ENDIF}
+end;
 { TWorkStealingDeque }
 
 constructor TWorkStealingDeque.Create;
@@ -211,8 +230,6 @@ begin
 end;
 
 function TWorkStealingDeque.TryPush(AWorkItem: IWorkItem): Boolean;
-var
-  B: NativeUInt;
 begin
   Result := False;
   if not Assigned(AWorkItem) then
@@ -220,12 +237,11 @@ begin
     
   FCasLock.Enter;
   try
-    B := FBottom;
-    if (B - FTop) > FMask then
+    if (FBottom - FTop) >= Length(FItems) then
       Grow;
       
-    FItems[B and FMask] := AWorkItem;
-    FBottom := B + 1;
+    FItems[FBottom and FMask] := AWorkItem;
+    FBottom := FBottom + 1;
     Result := True;
   finally
     FCasLock.Leave;
@@ -233,45 +249,46 @@ begin
 end;
 
 function TWorkStealingDeque.TryPop(out AWorkItem: IWorkItem): Boolean;
-var
-  B, T: NativeUInt;
 begin
   FCasLock.Enter;
   try
-    B := FBottom - 1;
-    FBottom := B;
-    T := FTop;
-    
-    if T <= B then
+    if FBottom <= FTop then
     begin
-      AWorkItem := FItems[B and FMask];
-      if T = B then
-      begin
-        if not CompareAndSwap(FTop, T, T + 1) then
-          AWorkItem := nil;
-        FBottom := T + 1;
-      end;
-      if Assigned(AWorkItem) then
-        FItems[B and FMask] := nil;  // Clear slot after successful pop
-      Result := Assigned(AWorkItem);
+      AWorkItem := nil;
+      Result := False;
+      Exit;
+    end;
+    
+    FBottom := FBottom - 1;
+    AWorkItem := FItems[FBottom and FMask];
+    
+    if FTop < FBottom then
+    begin
+      Result := True;
     end
     else
     begin
-      FBottom := T;
-      AWorkItem := nil;
-      Result := False;
+      Result := CompareAndSwap(FTop, FTop, FTop + 1);
+      if not Result then
+        AWorkItem := nil;
+      FBottom := FTop;
     end;
+    
+    if Result then
+      FItems[FBottom and FMask] := nil;
   finally
     FCasLock.Leave;
   end;
 end;
 
-
 function TWorkStealingDeque.TrySteal(out AWorkItem: IWorkItem): Boolean;
 var
-  T, B: NativeUInt;
+  T, B: TAtomicType;
   StolenItem: IWorkItem;
 begin
+  Result := False;
+  AWorkItem := nil;
+  
   FCasLock.Enter;
   try
     T := FTop;
@@ -282,25 +299,13 @@ begin
       StolenItem := FItems[T and FMask];
       if Assigned(StolenItem) then
       begin
-        Result := CompareAndSwap(FTop, T, T + 1);
-        if Result then
+        if CompareAndSwap(FTop, T, T + 1) then
         begin
           AWorkItem := StolenItem;
-          FItems[T and FMask] := nil;  // Clear slot after successful steal
-        end
-        else
-          AWorkItem := nil;
-      end
-      else
-      begin
-        Result := False;
-        AWorkItem := nil;
+          FItems[T and FMask] := nil;
+          Result := True;
+        end;
       end;
-    end
-    else
-    begin
-      AWorkItem := nil;
-      Result := False;
     end;
   finally
     FCasLock.Leave;
@@ -315,19 +320,18 @@ end;
 procedure TWorkStealingDeque.Clear;
 var
   DummyItem: IWorkItem;
-  I:Integer;
+  I: Integer;
 begin
   FCasLock.Enter;
   try
     while Size > 0 do
     begin
-      DummyItem := nil;  // Initialize the interface variable
+      DummyItem := nil;
       if TryPop(DummyItem) then
-        DummyItem := nil;  // Explicitly release the interface
+        DummyItem := nil;
     end;
     FBottom := 0;
     FTop := 0;
-    // Clear array references
     for I := 0 to Length(FItems) - 1 do
       FItems[I] := nil;
   finally
@@ -339,7 +343,7 @@ end;
 
 constructor TWorkStealingThread.Create(APool: TObject);
 begin
-  inherited Create(True);  // Create suspended
+  inherited Create(True);
   FPool := APool;
   FLocalDeque := TWorkStealingDeque.Create;
   FWorkEvent := TEvent.Create(nil, False, False, '');
@@ -351,7 +355,7 @@ destructor TWorkStealingThread.Destroy;
 begin
   if Assigned(FLocalDeque) then
   begin
-    FreeAndNil(FLocalDeque); // This will trigger TWorkStealingDeque.Destroy
+    FreeAndNil(FLocalDeque);
   end;
   
   if Assigned(FWorkEvent) then
@@ -369,7 +373,7 @@ begin
   ThreadLogger.Log(Format('Thread %d: Starting', [ThreadID]));
   while not Terminated do
   begin
-    WorkItem := nil; // Ensure clean interface state
+    WorkItem := nil;
     if TryGetWork(WorkItem) then
     begin
       if Assigned(WorkItem) then
@@ -398,7 +402,6 @@ begin
     end;
   end;
   ThreadLogger.Log(Format('Thread %d: Terminating', [ThreadID]));
-  // Ensure WorkItem is nil before thread terminates
   WorkItem := nil;
 end;
 
@@ -414,64 +417,65 @@ end;
 
 function TWorkStealingThread.TryStealWork: Boolean;
 const
-  MAX_STEAL_ATTEMPTS = 5;
-  STEAL_RETRY_DELAY = 1;   // milliseconds
+  MAX_STEAL_ATTEMPTS = 3;
 var
   WorkItem: IWorkItem;
   OtherThread: TWorkStealingThread;
   Pool: TWorkStealingPool;
-  I, Attempts: Integer;
+  I, Attempt, StartIndex: Integer;
   LocalTerminated: Boolean;
 begin
   Result := False;
-  Attempts := 0;
   WorkItem := nil;
   Pool := TWorkStealingPool(FPool);
   
-  // Cache terminated state to avoid race conditions
   LocalTerminated := Terminated;
-  
-  while (not Result) and (not LocalTerminated) and (Attempts < MAX_STEAL_ATTEMPTS) do
+  if LocalTerminated then
+    Exit;
+    
+  for Attempt := 0 to MAX_STEAL_ATTEMPTS - 1 do
   begin
+    StartIndex := Random(Length(Pool.FWorkers));
+    
     for I := 0 to Length(Pool.FWorkers) - 1 do
     begin
       if LocalTerminated then
         Exit;
         
-      OtherThread := Pool.FWorkers[I];
+      OtherThread := Pool.FWorkers[(StartIndex + I) mod Length(Pool.FWorkers)];
+      
       if (OtherThread = nil) or (OtherThread = Self) or 
          (OtherThread.LocalDeque = nil) then
         Continue;
         
       try
-        WorkItem := nil; // Reset interface before steal attempt
         if OtherThread.LocalDeque.TrySteal(WorkItem) then
         begin
           if Assigned(WorkItem) then
           begin
-            FLocalDeque.TryPush(WorkItem);
-            Result := True;
-            Break;
+            if FLocalDeque.TryPush(WorkItem) then
+            begin
+              Result := True;
+              Exit;
+            end;
           end;
         end;
       except
-        // Safely handle any exceptions during stealing
         WorkItem := nil;
         Continue;
       end;
     end;
     
-    Inc(Attempts);
     if not Result then
-      Sleep(STEAL_RETRY_DELAY);
+      Sleep(1);
   end;
   
-  WorkItem := nil; // Final cleanup
+  WorkItem := nil;
 end;
 
 procedure TWorkStealingThread.Start;
 begin
-  inherited Start;  // Changed from Resume to Start
+  inherited Start;
 end;
 
 procedure TWorkStealingThread.SignalWork;
@@ -482,14 +486,14 @@ end;
 procedure TWorkStealingThread.Terminate;
 begin
   if FTerminating then
-    Exit; // Prevent multiple termination attempts
+    Exit;
     
   inherited Terminate;
   FTerminating := True;
   if Assigned(FWorkEvent) then
   begin
-    SignalWork;  // Wake up thread to check terminating flag
-    FWorkEvent.SetEvent;  // Additional signal to ensure thread wakes up
+    SignalWork;
+    FWorkEvent.SetEvent;
   end;
 end;
 
@@ -530,17 +534,14 @@ var
   I: Integer;
   DesiredThreadCount: Integer;
 begin
-  // Calculate desired thread count first
   if AThreadCount <= 0 then
     DesiredThreadCount := TThread.ProcessorCount
   else
     DesiredThreadCount := Min(AThreadCount, TThread.ProcessorCount * 2);
-  DesiredThreadCount := Max(DesiredThreadCount, 4);  // Minimum of 4 threads
+  DesiredThreadCount := Max(DesiredThreadCount, 4);
   
-  // Call inherited constructor first with the calculated thread count
   inherited Create(DesiredThreadCount);
   
-  // Initialize synchronization objects
   FWorkLock := TCriticalSection.Create;
   FErrorLock := TCriticalSection.Create;
   FWorkEvent := TEvent.Create(nil, True, False, '');
@@ -550,7 +551,6 @@ begin
     SetLength(FWorkers, DesiredThreadCount);
     FWorkCount := 0;
     
-    // Create workers
     for I := 0 to High(FWorkers) do
     begin
       FWorkers[I] := TWorkStealingThread.Create(Self);
@@ -578,7 +578,6 @@ var
 begin
   ThreadLogger.Log('ThreadPool.Destroy: Starting cleanup');
   try
-    // Signal termination first
     if Assigned(FWorkLock) then
     begin
       ThreadLogger.Log('ThreadPool.Destroy: Signaling thread termination');
@@ -589,14 +588,13 @@ begin
           begin
             ThreadLogger.Log(Format('ThreadPool.Destroy: Terminating worker %d', [I]));
             FWorkers[I].Terminate;
-            FWorkers[I].SignalWork;  // Wake up thread
+            FWorkers[I].SignalWork;
           end;
       finally
         FWorkLock.Leave;
       end;
     end;
 
-    // Wait for and free threads
     if Length(FWorkers) > 0 then
     begin
       ThreadLogger.Log(Format('ThreadPool.Destroy: Cleaning up %d workers', [Length(FWorkers)]));
@@ -608,15 +606,14 @@ begin
             FWorkers[I].WaitFor;
             ThreadLogger.Log(Format('ThreadPool.Destroy: Freeing worker %d', [I]));
             FWorkers[I].Free;
-            FWorkers[I] := nil;  // Clear reference
+            FWorkers[I] := nil;
           except
             ThreadLogger.Log(Format('ThreadPool.Destroy: Error cleaning up worker %d', [I]));
           end;
         end;
     end;
-    SetLength(FWorkers, 0);  // Clear array
+    SetLength(FWorkers, 0);
 
-    // Clean up synchronization objects
     ThreadLogger.Log('ThreadPool.Destroy: Cleaning up synchronization objects');
     FWorkEvent.Free;
     FWorkLock.Free;
@@ -636,12 +633,16 @@ begin
   if not Assigned(AWorkItem) then
     Exit;
     
-  // Already under FWorkLock from Queue method
-  Worker := FindLeastLoadedWorker;
-  if Assigned(Worker) and Assigned(Worker.LocalDeque) then
-  begin
-    Worker.LocalDeque.TryPush(AWorkItem);
-    Worker.SignalWork;
+  FWorkLock.Enter;
+  try
+    Worker := FindLeastLoadedWorker;
+    if Assigned(Worker) and Assigned(Worker.LocalDeque) then
+    begin
+      Worker.LocalDeque.TryPush(AWorkItem);
+      Worker.SignalWork;
+    end;
+  finally
+    FWorkLock.Leave;
   end;
 end;
 
@@ -711,14 +712,25 @@ begin
   if not Assigned(AProcedure) then
     Exit;
     
-  WorkItem := TWorkItemProcedure.Create(AProcedure);
-  
-  FWorkLock.Enter;
   try
-    Inc(FWorkCount);
-    DistributeWork(WorkItem);  // Pass the interface variable
-  finally
-    FWorkLock.Leave;
+    WorkItem := TWorkItemProcedure.Create(AProcedure);
+    InterlockedIncrement(FWorkCount);
+    ThreadLogger.Log(Format('Queue: Incremented work count to %d', [FWorkCount]));
+    
+    FWorkLock.Enter;
+    try
+      DistributeWork(WorkItem);
+    finally
+      FWorkLock.Leave;
+      WorkItem := nil;
+    end;
+  except
+    on E: Exception do
+    begin
+      InterlockedDecrement(FWorkCount);
+      ThreadLogger.Log(Format('Queue Exception: Decremented work count to %d', [FWorkCount]));
+      HandleError(Format('Queue(Procedure) error: %s', [E.Message]));
+    end;
   end;
 end;
 
@@ -739,7 +751,7 @@ begin
       DistributeWork(WorkItem);
     finally
       FWorkLock.Leave;
-      WorkItem := nil;  // Explicitly release interface
+      WorkItem := nil;
     end;
   except
     on E: Exception do
@@ -756,19 +768,22 @@ begin
     
   try
     WorkItem := TWorkItemProcedureIndex.Create(AProcedure, AIndex);
+    InterlockedIncrement(FWorkCount);
+    ThreadLogger.Log(Format('[%d] Work added, count: %d', [GetCurrentThreadId, FWorkCount]));
+    
     FWorkLock.Enter;
     try
-      ThreadLogger.Log(Format('[%d] Adding work, count before: %d', [GetCurrentThreadId, FWorkCount]));
-      InterlockedIncrement(FWorkCount);
-      ThreadLogger.Log(Format('[%d] Work added, count after: %d', [GetCurrentThreadId, FWorkCount]));
       DistributeWork(WorkItem);
     finally
       FWorkLock.Leave;
-      WorkItem := nil;  // Explicitly release interface
+      WorkItem := nil;
     end;
   except
     on E: Exception do
+    begin
+      InterlockedDecrement(FWorkCount);
       HandleError(Format('Queue(ProcedureIndex) error: %s', [E.Message]));
+    end;
   end;
 end;
 
@@ -812,7 +827,6 @@ begin
         Break;
       end;
       
-      // Check if all threads are idle but work count > 0
       AllThreadsIdle := True;
       for I := 0 to High(FWorkers) do
       begin
@@ -851,23 +865,6 @@ end;
 function TWorkStealingPool.GetThreadCount: Integer;
 begin
   Result := Length(FWorkers);
-end;
-
-function CompareAndSwap(var Target: NativeUInt; OldValue, NewValue: NativeUInt): Boolean;
-var
-  TempTarget: LongInt;
-  TempOld: LongInt;
-  TempNew: LongInt;
-begin
-  {$IFDEF CPU64}
-  TempTarget := LongInt(Target);
-  TempOld := LongInt(OldValue);
-  TempNew := LongInt(NewValue);
-  Result := InterlockedCompareExchange(TempTarget, TempNew, TempOld) = TempOld;
-  Target := NativeUInt(TempTarget);
-  {$ELSE}
-  Result := InterlockedCompareExchange(LongWord(Target), LongWord(NewValue), LongWord(OldValue)) = LongWord(OldValue);
-  {$ENDIF}
 end;
 
 { TWorkItemProcedure }
@@ -945,20 +942,13 @@ begin
 end;
 
 procedure TWorkStealingPool.DecrementWorkCount;
+var
+  NewCount: Integer;
 begin
-  FWorkLock.Enter;
-  try
-    if FWorkCount > 0 then
-    begin
-      ThreadLogger.Log(Format('[%d] Completing work, count before: %d', [GetCurrentThreadId, FWorkCount]));
-      InterlockedDecrement(FWorkCount);
-      ThreadLogger.Log(Format('[%d] Work completed, count after: %d', [GetCurrentThreadId, FWorkCount]));
-      if FWorkCount = 0 then
-        FWorkEvent.SetEvent;
-    end;
-  finally
-    FWorkLock.Leave;
-  end;
+  NewCount := InterlockedDecrement(FWorkCount);
+  ThreadLogger.Log(Format('[%d] Work completed, count: %d', [GetCurrentThreadId, NewCount]));
+  if NewCount = 0 then
+    FWorkEvent.SetEvent;
 end;
 
 end.
