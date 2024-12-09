@@ -226,7 +226,12 @@ end;
 
 function TWorkStealingDeque.Size: Integer;
 begin
-  Result := FBottom - FTop;
+  FCasLock.Enter;
+  try
+    Result := FBottom - FTop;
+  finally
+    FCasLock.Leave;
+  end;
 end;
 
 function TWorkStealingDeque.TryPush(AWorkItem: IWorkItem): Boolean;
@@ -235,7 +240,7 @@ begin
   if not Assigned(AWorkItem) then
     Exit;
     
-  FCasLock.Enter;
+  FCasLock.Enter;  // We need full synchronization to prevent memory issues
   try
     if (FBottom - FTop) >= Length(FItems) then
       Grow;
@@ -250,63 +255,48 @@ end;
 
 function TWorkStealingDeque.TryPop(out AWorkItem: IWorkItem): Boolean;
 begin
+  Result := False;
+  AWorkItem := nil;
+  
   FCasLock.Enter;
   try
     if FBottom <= FTop then
-    begin
-      AWorkItem := nil;
-      Result := False;
       Exit;
-    end;
-    
+      
     FBottom := FBottom - 1;
     AWorkItem := FItems[FBottom and FMask];
+    FItems[FBottom and FMask] := nil;  // Clear reference
     
-    if FTop < FBottom then
+    if FTop = FBottom then
     begin
-      Result := True;
-    end
-    else
-    begin
-      Result := CompareAndSwap(FTop, FTop, FTop + 1);
-      if not Result then
+      if not CompareAndSwap(FTop, FTop, FTop + 1) then
         AWorkItem := nil;
       FBottom := FTop;
     end;
     
-    if Result then
-      FItems[FBottom and FMask] := nil;
+    Result := AWorkItem <> nil;
   finally
     FCasLock.Leave;
   end;
 end;
 
 function TWorkStealingDeque.TrySteal(out AWorkItem: IWorkItem): Boolean;
-var
-  T, B: TAtomicType;
-  StolenItem: IWorkItem;
 begin
   Result := False;
   AWorkItem := nil;
   
   FCasLock.Enter;
   try
-    T := FTop;
-    B := FBottom;
-    
-    if T < B then
-    begin
-      StolenItem := FItems[T and FMask];
-      if Assigned(StolenItem) then
-      begin
-        if CompareAndSwap(FTop, T, T + 1) then
-        begin
-          AWorkItem := StolenItem;
-          FItems[T and FMask] := nil;
-          Result := True;
-        end;
-      end;
-    end;
+    if FTop >= FBottom then
+      Exit;
+      
+    AWorkItem := FItems[FTop and FMask];
+    if not Assigned(AWorkItem) then
+      Exit;
+      
+    FItems[FTop and FMask] := nil;  // Clear reference
+    FTop := FTop + 1;
+    Result := True;
   finally
     FCasLock.Leave;
   end;
@@ -314,26 +304,19 @@ end;
 
 function TWorkStealingDeque.IsEmpty: Boolean;
 begin
-  Result := Size <= 0;
+  Result := FBottom <= FTop;
 end;
 
 procedure TWorkStealingDeque.Clear;
 var
-  DummyItem: IWorkItem;
   I: Integer;
 begin
   FCasLock.Enter;
   try
-    while Size > 0 do
-    begin
-      DummyItem := nil;
-      if TryPop(DummyItem) then
-        DummyItem := nil;
-    end;
-    FBottom := 0;
-    FTop := 0;
     for I := 0 to Length(FItems) - 1 do
       FItems[I] := nil;
+    FBottom := 0;
+    FTop := 0;
   finally
     FCasLock.Leave;
   end;

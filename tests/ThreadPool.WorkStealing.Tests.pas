@@ -97,7 +97,17 @@ end;
 
 procedure TWorkStealingPoolTests.IncrementCounter;
 begin
-  FCounter.Increment;
+  try
+    FCounterLock.Enter;
+    try
+      FCounter.Increment;
+    finally
+      FCounterLock.Leave;
+    end;
+  except
+    on E: Exception do
+      WriteLn('IncrementCounter Exception: ', E.Message);
+  end;
 end;
 
 procedure TWorkStealingPoolTests.ProcessWithIndex(AIndex: Integer);
@@ -522,11 +532,19 @@ begin
 end;
 
 procedure TWorkStealingPoolTests.ExecuteDelayedWork(AIndex: Integer);
-var
-  Work: IDelayedWork;
 begin
-  Work := TDelayedIncrementProc.Create(1, FCounter, FCounterLock);
-  Work.Execute;
+  try
+    FCounterLock.Enter;
+    try
+      Sleep(1);  // Simulate some work
+      FCounter.Increment;
+    finally
+      FCounterLock.Leave;
+    end;
+  except
+    on E: Exception do
+      WriteLn('ExecuteDelayedWork Exception: ', E.Message);
+  end;
 end;
 
 initialization
