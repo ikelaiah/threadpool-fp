@@ -400,20 +400,17 @@ end;
 
 function TWorkStealingThread.TryStealWork: Boolean;
 const
-  MAX_STEAL_ATTEMPTS = 3;
+  MAX_STEAL_ATTEMPTS = 10;
 var
   WorkItem: IWorkItem;
   OtherThread: TWorkStealingThread;
   Pool: TWorkStealingPool;
   I, Attempt, StartIndex: Integer;
-  LocalTerminated: Boolean;
 begin
   Result := False;
-  WorkItem := nil;
   Pool := TWorkStealingPool(FPool);
   
-  LocalTerminated := Terminated;
-  if LocalTerminated then
+  if Terminated then
     Exit;
     
   for Attempt := 0 to MAX_STEAL_ATTEMPTS - 1 do
@@ -422,38 +419,32 @@ begin
     
     for I := 0 to Length(Pool.FWorkers) - 1 do
     begin
-      if LocalTerminated then
+      if Terminated then
         Exit;
         
       OtherThread := Pool.FWorkers[(StartIndex + I) mod Length(Pool.FWorkers)];
-      
       if (OtherThread = nil) or (OtherThread = Self) or 
          (OtherThread.LocalDeque = nil) then
         Continue;
         
+      WorkItem := nil;  // Reset for each attempt
       try
         if OtherThread.LocalDeque.TrySteal(WorkItem) then
         begin
           if Assigned(WorkItem) then
           begin
             if FLocalDeque.TryPush(WorkItem) then
-            begin
-              Result := True;
-              Exit;
-            end;
+              Exit(True);
           end;
         end;
       except
         WorkItem := nil;
-        Continue;
       end;
     end;
     
-    if not Result then
-      Sleep(1);
+    if Attempt < MAX_STEAL_ATTEMPTS - 1 then
+      Sleep(0);  // Yield to other threads but don't actually sleep
   end;
-  
-  WorkItem := nil;
 end;
 
 procedure TWorkStealingThread.Start;
