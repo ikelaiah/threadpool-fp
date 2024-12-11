@@ -218,11 +218,52 @@ end;
 
 ## Performance Details
 
-### Queue Implementation
-- Fixed-size circular buffer
-- O(1) enqueue/dequeue operations
-- No memory allocation during operation
-- Minimal lock contention design
+### Queue Implementation Strategy
+
+#### Current Approach
+The implementation uses a fixed-size circular buffer with a fail-fast strategy:
+- **Bounded Queue:** Fixed capacity of 1024 items prevents memory exhaustion
+- **Thread Safety:** All operations protected by FLock critical section
+- **Fail-Fast Policy:** Immediate failure when queue is full (returns False)
+
+
+```pascal
+function TThreadSafeQueue.TryEnqueue(AItem: IWorkItem): boolean;
+begin
+  Result := False;
+  FLock.Enter;
+  try
+    if FCount < FCapacity then
+    begin
+      FItems[FTail] := AItem;
+      FTail := (FTail + 1) mod FCapacity;
+      Inc(FCount);
+      Result := True;
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+```
+
+
+### Benefits of Current Strategy
+1. **Memory Safety**
+   - Predictable memory usage
+   - No risk of unbounded growth
+   - Protected against memory exhaustion
+
+2. **Performance**
+   - O(1) enqueue/dequeue operations
+   - Minimal lock contention
+   - No memory allocation during operation
+   - Quick failure detection
+
+3. **Reliability**
+   - Clear failure semantics
+   - Thread-safe operations
+   - No hidden blocking
+   - Predictable behavior under load
 
 ### Critical Section Usage
 ```pascal
