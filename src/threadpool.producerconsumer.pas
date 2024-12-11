@@ -103,7 +103,7 @@ begin
   inherited Create(AThreadCount);
   
   if AThreadCount <= 0 then
-    FLocalThreadCount := CPUCount
+    FLocalThreadCount := CPUCount  // Default to CPUCount if AThreadCount is 0 or negative
   else
     FLocalThreadCount := AThreadCount;
     
@@ -210,7 +210,18 @@ begin
   end;
 
   try
-    FWorkQueue.TryEnqueue(WorkItem);
+    if not FWorkQueue.TryEnqueue(WorkItem) then
+    begin
+      FWorkItemLock.Enter;
+      try
+        Dec(FWorkItemCount);
+        if FWorkItemCount = 0 then
+          FCompletionEvent.SetEvent;
+      finally
+        FWorkItemLock.Leave;
+      end;
+      raise Exception.Create('Queue is full');
+    end;
   except
     FWorkItemLock.Enter;
     try
@@ -242,7 +253,18 @@ begin
   end;
 
   try
-    FWorkQueue.TryEnqueue(WorkItem);
+    if not FWorkQueue.TryEnqueue(WorkItem) then
+    begin
+      FWorkItemLock.Enter;
+      try
+        Dec(FWorkItemCount);
+        if FWorkItemCount = 0 then
+          FCompletionEvent.SetEvent;
+      finally
+        FWorkItemLock.Leave;
+      end;
+      raise Exception.Create('Queue is full');
+    end;
   except
     FWorkItemLock.Enter;
     try
@@ -274,7 +296,18 @@ begin
   end;
 
   try
-    FWorkQueue.TryEnqueue(WorkItem);
+    if not FWorkQueue.TryEnqueue(WorkItem) then
+    begin
+      FWorkItemLock.Enter;
+      try
+        Dec(FWorkItemCount);
+        if FWorkItemCount = 0 then
+          FCompletionEvent.SetEvent;
+      finally
+        FWorkItemLock.Leave;
+      end;
+      raise Exception.Create('Queue is full');
+    end;
   except
     FWorkItemLock.Enter;
     try
@@ -505,4 +538,4 @@ begin
   DebugLog('Worker thread terminating');
 end;
 
-end. 
+end.

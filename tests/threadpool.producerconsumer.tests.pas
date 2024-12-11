@@ -255,13 +255,13 @@ begin
   ExceptionRaised := False;
   
   FThreadPool.Free;
-  FThreadPool := TProducerConsumerThreadPool.Create(2);
+  FThreadPool := TProducerConsumerThreadPool.Create(1);
   
   try
     for I := 1 to STRESS_TEST_TASKS do
     begin
       FThreadPool.Queue(@SlowTask);
-      LogTest('Queued task ' + IntToStr(I));
+      // LogTest('Queued task ' + IntToStr(I));
     end;
   except
     on E: Exception do
