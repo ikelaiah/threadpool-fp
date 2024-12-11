@@ -195,8 +195,10 @@ end;
 
 ## 📚 Documentation
 
-- [API Documentation](docs/API-Docs.md)
-- [Technical Details](docs/TECHNICAL.md)
+- [ThreadPool.Simple API Documentation](docs/ThreadPool.Simple-API.md)
+- [ThreadPool.Simple Technical Details](docs/ThreadPool.Simple-Technical.md)
+- [ThreadPool.ProducerConsumer API Documentation](docs/ThreadPool.ProducerConsumer-API.md)
+- [ThreadPool.ProducerConsumer Technical Details](docs/ThreadPool.ProducerConsumer-Technical.md)
 
 ## 🧪 Testing
 
@@ -204,6 +206,8 @@ end;
 2. Open `TestRunner.lpi` in Lazarus IDE and compile
 3. Run `./TestRunner.exe -a -p --format=plain` to see the test results.
 4. Ensure all tests pass to verify the library's functionality
+
+May take up to 5 mins to run all tests.
 
 ## 🧵 Thread Management
 

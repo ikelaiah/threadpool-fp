@@ -126,8 +126,6 @@ finally
 end;
 ```
 
-
-
 ## Example Implementation
 
 See examples in the [examples](../examples) directory.
