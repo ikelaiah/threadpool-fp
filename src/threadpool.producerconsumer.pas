@@ -27,17 +27,17 @@ type
   TThreadSafeQueue = class(TObject)
   private
     FItems: array of IWorkItem;
-    FHead: Integer;
-    FTail: Integer;
-    FCount: Integer;
-    FCapacity: Integer;
+    FHead: integer;
+    FTail: integer;
+    FCount: integer;
+    FCapacity: integer;
     FLock: TCriticalSection;
   public
-    constructor Create(ACapacity: Integer);
+    constructor Create(ACapacity: integer);
     destructor Destroy; override;
-    function TryEnqueue(AItem: IWorkItem): Boolean;
-    function TryDequeue(out AItem: IWorkItem): Boolean;
-    function GetCount: Integer;
+    function TryEnqueue(AItem: IWorkItem): boolean;
+    function TryDequeue(out AItem: IWorkItem): boolean;
+    function GetCount: integer;
     procedure Clear;
   end;
 
@@ -48,14 +48,14 @@ type
     FMethod: TThreadMethod;
     FProcedureIndex: TThreadProcedureIndex;
     FMethodIndex: TThreadMethodIndex;
-    FIndex: Integer;
+    FIndex: integer;
     FItemType: TWorkItemType;
     FThreadPool: TObject;
   public
     constructor Create(AThreadPool: TObject);
     { IWorkItem implementation }
     procedure Execute;
-    function GetItemType: Integer;
+    function GetItemType: integer;
   end;
 
   { Producer-consumer thread pool implementation }
@@ -65,24 +65,24 @@ type
     FWorkQueue: TThreadSafeQueue;  // Use our custom thread-safe queue
     FCompletionEvent: TEvent;
     FErrorLock: TCriticalSection;
-    FWorkItemCount: Integer;
+    FWorkItemCount: integer;
     FWorkItemLock: TCriticalSection;
-    FLocalThreadCount: Integer;
-    
+    FLocalThreadCount: integer;
+
     procedure ClearThreads;
-    function GetThreadCount: Integer; override;
+    function GetThreadCount: integer; override;
     function GetLastError: string; override;
   public
-    constructor Create(AThreadCount: Integer = 0); override;
+    constructor Create(AThreadCount: integer = 0); override;
     destructor Destroy; override;
-    
+
     { IThreadPool implementation }
     procedure Queue(AProcedure: TThreadProcedure); override;
     procedure Queue(AMethod: TThreadMethod); override;
-    procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); override;
-    procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); override;
+    procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: integer); override;
+    procedure Queue(AMethod: TThreadMethodIndex; AIndex: integer); override;
     procedure WaitForAll; override;
-    property ThreadCount: Integer read GetThreadCount;
+    property ThreadCount: integer read GetThreadCount;
     property LastError: string read GetLastError;
   end;
 
@@ -94,27 +94,29 @@ begin
     WriteLn('[', FormatDateTime('hh:nn:ss.zzz', Now), '] ', GetThreadID, ': ', Msg);
 end;
 
-constructor TProducerConsumerThreadPool.Create(AThreadCount: Integer);
+constructor TProducerConsumerThreadPool.Create(AThreadCount: integer);
 var
-  I: Integer;
+  I: integer;
   Thread: TProducerConsumerWorkerThread;
 begin
   DebugLog('Creating thread pool with ' + IntToStr(AThreadCount) + ' threads');
   inherited Create(AThreadCount);
-  
+
   if AThreadCount <= 0 then
-    FLocalThreadCount := CPUCount  // Default to CPUCount if AThreadCount is 0 or negative
+    FLocalThreadCount := CPUCount
+  // Default to CPUCount if AThreadCount is 0 or negative
   else
     FLocalThreadCount := AThreadCount;
-    
+
   DebugLog('Actual thread count: ' + IntToStr(FLocalThreadCount));
-  
+
   FThreads := TThreadList.Create;
   FWorkQueue := TThreadSafeQueue.Create(1024);
   FCompletionEvent := TEvent.Create(nil, True, True, '');
   FErrorLock := TCriticalSection.Create;
   FWorkItemLock := TCriticalSection.Create;
   FWorkItemCount := 0;
+  FLastError := '';
 
   // Create worker threads
   for I := 1 to FLocalThreadCount do
@@ -147,7 +149,7 @@ begin
   try
     WorkItem.FProcedure := AProcedure;
     WorkItem.FItemType := witProcedure;
-    
+
     FWorkItemLock.Enter;
     try
       Inc(FWorkItemCount);
@@ -176,14 +178,14 @@ begin
       on E: Exception do
       begin
         DebugLog('Failed to queue work item: ' + E.Message);
-        FWorkItemLock.Enter;
-        try
-          Dec(FWorkItemCount);
-          if FWorkItemCount = 0 then
-            FCompletionEvent.SetEvent;
-        finally
-          FWorkItemLock.Leave;
-        end;
+        // FWorkItemLock.Enter;
+        //try
+        //  Dec(FWorkItemCount);
+        //  if FWorkItemCount = 0 then
+        //    FCompletionEvent.SetEvent;
+        //finally
+        //  FWorkItemLock.Leave;
+        //end;
         raise;
       end;
     end;
@@ -200,7 +202,7 @@ begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
   WorkItem.FMethod := AMethod;
   WorkItem.FItemType := witMethod;
-  
+
   FWorkItemLock.Enter;
   try
     Inc(FWorkItemCount);
@@ -223,19 +225,24 @@ begin
       raise Exception.Create('Queue is full');
     end;
   except
-    FWorkItemLock.Enter;
-    try
-      Dec(FWorkItemCount);
-      if FWorkItemCount = 0 then
-        FCompletionEvent.SetEvent;
-    finally
-      FWorkItemLock.Leave;
+    on E: Exception do
+    begin
+      DebugLog('Failed to queue work item: ' + E.Message);
+      //FWorkItemLock.Enter;
+      //try
+      //  Dec(FWorkItemCount);
+      //  if FWorkItemCount = 0 then
+      //    FCompletionEvent.SetEvent;
+      //finally
+      //  FWorkItemLock.Leave;
+      //end;
+      raise;
     end;
-    raise;
   end;
 end;
 
-procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
+procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedureIndex;
+  AIndex: integer);
 var
   WorkItem: TProducerConsumerWorkItem;
 begin
@@ -243,7 +250,7 @@ begin
   WorkItem.FProcedureIndex := AProcedure;
   WorkItem.FIndex := AIndex;
   WorkItem.FItemType := witProcedureIndex;
-  
+
   FWorkItemLock.Enter;
   try
     Inc(FWorkItemCount);
@@ -266,19 +273,24 @@ begin
       raise Exception.Create('Queue is full');
     end;
   except
-    FWorkItemLock.Enter;
-    try
-      Dec(FWorkItemCount);
-      if FWorkItemCount = 0 then
-        FCompletionEvent.SetEvent;
-    finally
-      FWorkItemLock.Leave;
+    on E: Exception do
+    begin
+      DebugLog('Failed to queue work item: ' + E.Message);
+      //FWorkItemLock.Enter;
+      //try
+      //  Dec(FWorkItemCount);
+      //  if FWorkItemCount = 0 then
+      //    FCompletionEvent.SetEvent;
+      //finally
+      //  FWorkItemLock.Leave;
+      //end;
+      raise;
     end;
-    raise;
   end;
 end;
 
-procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
+procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethodIndex;
+  AIndex: integer);
 var
   WorkItem: TProducerConsumerWorkItem;
 begin
@@ -286,7 +298,7 @@ begin
   WorkItem.FMethodIndex := AMethod;
   WorkItem.FIndex := AIndex;
   WorkItem.FItemType := witMethodIndex;
-  
+
   FWorkItemLock.Enter;
   try
     Inc(FWorkItemCount);
@@ -309,15 +321,19 @@ begin
       raise Exception.Create('Queue is full');
     end;
   except
-    FWorkItemLock.Enter;
-    try
-      Dec(FWorkItemCount);
-      if FWorkItemCount = 0 then
-        FCompletionEvent.SetEvent;
-    finally
-      FWorkItemLock.Leave;
+    on E: Exception do
+    begin
+      DebugLog('Failed to queue work item: ' + E.Message);
+      //FWorkItemLock.Enter;
+      //try
+      //  Dec(FWorkItemCount);
+      //  if FWorkItemCount = 0 then
+      //    FCompletionEvent.SetEvent;
+      //finally
+      //  FWorkItemLock.Leave;
+      //end;
+      raise;
     end;
-    raise;
   end;
 end;
 
@@ -332,7 +348,7 @@ procedure TProducerConsumerThreadPool.ClearThreads;
 var
   Thread: TThread;
   List: TList;
-  I: Integer;
+  I: integer;
 begin
   List := FThreads.LockList;
   try
@@ -360,7 +376,7 @@ begin
   end;
 end;
 
-function TProducerConsumerThreadPool.GetThreadCount: Integer;
+function TProducerConsumerThreadPool.GetThreadCount: integer;
 begin
   Result := FLocalThreadCount;
 end;
@@ -390,14 +406,14 @@ begin
   end;
 end;
 
-function TProducerConsumerWorkItem.GetItemType: Integer;
+function TProducerConsumerWorkItem.GetItemType: integer;
 begin
   Result := Ord(FItemType);
 end;
 
 { TThreadSafeQueue }
 
-constructor TThreadSafeQueue.Create(ACapacity: Integer);
+constructor TThreadSafeQueue.Create(ACapacity: integer);
 begin
   inherited Create;
   FCapacity := ACapacity;
@@ -415,7 +431,7 @@ begin
   inherited;
 end;
 
-function TThreadSafeQueue.TryEnqueue(AItem: IWorkItem): Boolean;
+function TThreadSafeQueue.TryEnqueue(AItem: IWorkItem): boolean;
 begin
   Result := False;
   FLock.Enter;
@@ -432,7 +448,7 @@ begin
   end;
 end;
 
-function TThreadSafeQueue.TryDequeue(out AItem: IWorkItem): Boolean;
+function TThreadSafeQueue.TryDequeue(out AItem: IWorkItem): boolean;
 begin
   Result := False;
   FLock.Enter;
@@ -450,7 +466,7 @@ begin
   end;
 end;
 
-function TThreadSafeQueue.GetCount: Integer;
+function TThreadSafeQueue.GetCount: integer;
 begin
   FLock.Enter;
   try
@@ -462,7 +478,7 @@ end;
 
 procedure TThreadSafeQueue.Clear;
 var
-  I: Integer;
+  I: integer;
 begin
   FLock.Enter;
   try
@@ -514,7 +530,7 @@ begin
             end;
           end;
         end;
-        
+
         Pool.FWorkItemLock.Enter;
         try
           Dec(Pool.FWorkItemCount);

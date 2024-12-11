@@ -6,7 +6,7 @@ uses
   Classes, SysUtils, ThreadPool.ProducerConsumer, SyncObjs;
 
 const
-  ARRAY_SIZE = 200;
+  ARRAY_SIZE = 10000;
 
 type
   TNumberArray = array of Integer;
