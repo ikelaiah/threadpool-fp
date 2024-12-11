@@ -23,35 +23,106 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 >    - Rust with [threadpool](https://github.com/lifthrasiir/threadpool)
 >    - Any other language that supports modern threading
 
-## ✨ Features
+## ✨ Features & Implementations
 
-- 🔄 **Thread Count Configuration**
-  - Set a minimum of 4 threads for optimal parallelism
-  - Set a maximum of 2× `ProcessorCount` to prevent overload
-  - Thread count is fixed upon initialization
+This library provides two thread pool implementations, each with its own strengths:
+
+### 1. 🚀 Simple Thread Pool (ThreadPool.Simple)
+```pascal
+uses ThreadPool.Simple;
+```
+- Global singleton instance for quick use
+- Direct task execution
+- Automatic thread count management
+- Best for simple parallel tasks
+- Lower memory overhead
+
+### 2. 🏭 Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)
+```pascal
+uses ThreadPool.ProducerConsumer;
+```
+- Queue-based task processing (1024 items)
+- Better for high volume tasks
+- Handles queue full conditions
+- More sophisticated error handling
+- Full control over execution
+
+### 🎯 Shared Features
+
+- **Thread Count Management**
+  - Minimum 4 threads for optimal parallelism
+  - Maximum 2× ProcessorCount to prevent overload
+  - Fixed count after initialization
   
-- 🎯 Multiple task types support
-  - Simple procedures: `GlobalThreadPool.Queue(@MyProc)`
-  - Object methods: `GlobalThreadPool.Queue(@MyObject.MyMethod)`
-  - Indexed variants: `GlobalThreadPool.Queue(@MyProc, Index)`
+- **Task Types Support**
+  - Simple procedures: `Pool.Queue(@MyProc)`
+  - Object methods: `Pool.Queue(@MyObject.MyMethod)`
+  - Indexed variants: `Pool.Queue(@MyProc, Index)`
   
-- 🔒 Thread-safe operation
+- **Thread Safety**
   - Built-in synchronization
   - Safe resource sharing
   - Protected error handling
   
-- ⚠️ Exception handling
+- **Error Management**
   - Thread-specific error capture
   - Error messages with thread IDs
-  - Pool continues after exceptions
-  
-- 🌍 Convenience
-  - Global pool instance
-  - Custom pool creation
-  - Simple API
+  - Continuous operation after exceptions
+
+### 🔄 Choosing an Implementation
+
+**Use Simple Thread Pool when:**
+- Quick, direct task execution needed
+- Task count is moderate
+- Memory overhead is a concern
+- Global instance convenience desired
+
+**Use Producer-Consumer Pool when:**
+- High task volume expected
+- Queue management needed
+- Task buffering required
+- Full execution control needed
 
 > [!NOTE]
-> The thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for important details and limitations.
+> Thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for details.
+
+### Example Comparison
+
+**Simple Thread Pool:**
+```pascal
+uses ThreadPool.Simple;
+
+begin
+  // Use global instance
+  GlobalThreadPool.Queue(@MyTask);
+  GlobalThreadPool.WaitForAll;
+end;
+```
+
+**Producer-Consumer Thread Pool:**
+```pascal
+uses ThreadPool.ProducerConsumer;
+
+var
+  Pool: TProducerConsumerThreadPool;
+begin
+  Pool := TProducerConsumerThreadPool.Create;
+  try
+    // Handle queue full condition
+    try
+      Pool.Queue(@MyTask);
+    except
+      on E: Exception do
+        if E.Message = 'Queue is full' then
+          // Handle full queue
+    end;
+    Pool.WaitForAll;
+  finally
+    Pool.Free;
+  end;
+end;
+```
+
 
 ## 🏃 Quick Start
 
@@ -183,8 +254,21 @@ end;
 ## 🛠️ Installation
 
 1. Add the `src` directory to your project's search path
-2. Add `ThreadPool.Simple` to your uses clause
-3. Start using the `GlobalThreadPool` instance or create `TSimpleThreadPool` instances
+2. Choose your implementation:
+   
+   For Simple Thread Pool:
+   ```pascal
+   uses ThreadPool.Simple;
+   ```
+   
+   For Producer-Consumer Thread Pool:
+   ```pascal
+   uses ThreadPool.ProducerConsumer;
+   ```
+
+3. Start using:
+   - Simple: Use `GlobalThreadPool` or create `TSimpleThreadPool`
+   - Producer-Consumer: Create `TProducerConsumerThreadPool`
 
 ## ⚙️ Requirements
 
