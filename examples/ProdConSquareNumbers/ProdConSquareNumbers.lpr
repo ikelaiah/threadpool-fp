@@ -73,6 +73,7 @@ begin
           begin
             if E.Message = 'Queue is full' then
             begin
+              // In case the queue is full, wait, then retry again
               WriteLn('Queue full, waiting...');
               Pool.WaitForAll;  // Wait for queue to clear
               Pool.Queue(@SquareNumber, I);  // Try again

@@ -3,6 +3,22 @@
 ## Overview
 The `ThreadPool.ProducerConsumer` unit implements a thread pool using the producer-consumer pattern. It provides a thread-safe queue for work items and manages a pool of worker threads that process these items.
 
+### Producer-Consumer Thread Pool Details
+
+The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with a simple fail-fast strategy fortask management:
+
+- **Fixed-Size Circular Buffer**
+  - **Capacity:** The task queue is limited to 1024 items to ensure predictable memory usage.
+  - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
+
+- **Fail-Fast Approach**
+  - **Immediate Feedback:** When the queue reaches its maximum capacity, any attempt to enqueue additional tasks will fail instantly.
+  - **Manual Handling Required:** Users must implement their own logic to handle scenarios where the task queue is full, such as retry mechanisms, task prioritization, or dropping tasks as necessary.
+
+> [!WARNING]
+> 
+> Since the queue does not dynamically expand, it is crucial to manage task production rates to prevent queue saturation. Implement appropriate error handling to manage cases when the queue is full.
+
 ## Architecture
 
 ### Class Structure
