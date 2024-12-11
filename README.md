@@ -253,9 +253,14 @@ end;
 
 ### Producer-Consumer Examples
 
-5. Coming Soon...
+5. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
+   - High volume task processing
+   - Queue full handling
 
-6. Coming Soon...
+6. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
+   - Queue-based task processing
+   - Thread-safe message handling
+   - Graceful shutdown
 
 
 ## 🛠️ Installation
