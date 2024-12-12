@@ -14,6 +14,8 @@ procedure DebugLog(const Msg: string);
 
 type
 
+  EQueueFullException = class(Exception);
+
   TBackpressureConfig = record
     LowLoadThreshold: Double;    // e.g., 0.5 for 50%
     MediumLoadThreshold: Double; // e.g., 0.7 for 70%
@@ -193,10 +195,15 @@ begin
     end;
     
   except
-    on E: Exception do
+    on E: EQueueFullException do
     begin
       DebugLog('Failed to queue work item: ' + E.Message);
-      raise;
+      raise; // Re-raise the original EQueueFullException
+    end;
+    on E: Exception do
+    begin
+      DebugLog('Unexpected error while queueing work item: ' + E.Message);
+      raise; // Re-raise the original exception
     end;
   end;
 end;
@@ -215,7 +222,7 @@ begin
     WorkItem.FItemType := witProcedure;
     
     if not TryQueueWorkItem(WorkItem) then
-      raise Exception.Create('Failed to queue work item');
+      raise EQueueFullException.Create('Queue is full');
   except
     WorkItem.Free;
     raise;
@@ -236,7 +243,7 @@ begin
     WorkItem.FItemType := witMethod;
     
     if not TryQueueWorkItem(WorkItem) then
-      raise Exception.Create('Failed to queue work item');
+      raise EQueueFullException.Create('Queue is full');
   except
     WorkItem.Free;
     raise;
@@ -247,8 +254,7 @@ end;
   Note:
   The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
 }
-procedure TProducerConsumerThreadPool.Queue(
-  AProcedure: TThreadProcedureIndex; AIndex: Integer);
+procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
 begin
@@ -259,7 +265,7 @@ begin
     WorkItem.FItemType := witProcedureIndex;
     
     if not TryQueueWorkItem(WorkItem) then
-      raise Exception.Create('Failed to queue work item');
+      raise EQueueFullException.Create('Queue is full');
   except
     WorkItem.Free;
     raise;
@@ -282,7 +288,7 @@ begin
     WorkItem.FItemType := witMethodIndex;
     
     if not TryQueueWorkItem(WorkItem) then
-      raise Exception.Create('Failed to queue work item');
+      raise EQueueFullException.Create('Queue is full');
   except
     WorkItem.Free;
     raise;
@@ -543,8 +549,7 @@ begin
   Attempts := 0;
   Result := False;
   
-  while (Attempts < FBackpressureConfig.MaxAttempts) do
-  begin
+  repeat
     // Apply backpressure before attempting to enqueue
     ApplyBackpressure;
     
@@ -564,11 +569,16 @@ begin
     end;
     
     Inc(Attempts);
+    // Move the exception outside the lock
+    if Attempts >= FBackpressureConfig.MaxAttempts then
+      Break;
+      
     Sleep(10); // Short delay between attempts
-  end;
+  until Result;
   
+  // Raise the exception after all attempts have failed
   if not Result then
-    raise Exception.Create('Queue is full after maximum attempts');
+    raise EQueueFullException.Create('Queue is full after maximum attempts');
 end;
 
 end.
