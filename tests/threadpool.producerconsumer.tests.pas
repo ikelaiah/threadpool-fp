@@ -5,7 +5,8 @@ unit ThreadPool.ProducerConsumer.Tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, ThreadPool.Types, ThreadPool.ProducerConsumer, syncobjs, DateUtils;
+  Classes, SysUtils, fpcunit, testregistry, ThreadPool.Types,
+  ThreadPool.ProducerConsumer, syncobjs, DateUtils, Math;
 
 type
   { TTestProducerConsumerThreadPool }
@@ -22,8 +23,10 @@ type
     procedure ProcessWithIndex(AIndex: Integer);
     procedure ProcessMethodWithIndex(AIndex: Integer);
     procedure SlowTask;
+    procedure LongTask;
     procedure RaiseTestError;
     procedure SleepTask;
+    function MeasureQueueTime(const TaskCount: Integer): Int64;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -38,6 +41,10 @@ type
     procedure Test08_QueueFullBehavior;
     procedure Test09_ErrorHandling;
     procedure Test10_WaitForAll;
+    procedure Test11_BackpressureConfig;
+    procedure Test12_LoadFactorCalculation;
+    procedure Test13_BackpressureBehavior;
+    procedure Test14_AdaptivePerformance;
   end;
 
 implementation
@@ -117,9 +124,14 @@ begin
   end;
 end;
 
+procedure TTestProducerConsumerThreadPool.LongTask;
+begin
+  Sleep(500);
+end;
+
 procedure TTestProducerConsumerThreadPool.SlowTask;
 begin
-  Sleep(100);
+  Sleep(250);
 end;
 
 procedure TTestProducerConsumerThreadPool.RaiseTestError;
@@ -130,6 +142,17 @@ end;
 procedure TTestProducerConsumerThreadPool.SleepTask;
 begin
   Sleep(100);
+end;
+
+function TTestProducerConsumerThreadPool.MeasureQueueTime(const TaskCount: Integer): Int64;
+var
+  StartTime: TDateTime;
+  I: Integer;
+begin
+  StartTime := Now;
+  for I := 1 to TaskCount do
+    FThreadPool.Queue(@SleepTask);
+  Result := MilliSecondsBetween(Now, StartTime);
 end;
 
 procedure TTestProducerConsumerThreadPool.Test01_CreateDestroy;
@@ -246,37 +269,59 @@ begin
   LogTest('Test07_ParallelExecution finished');
 end;
 
+{
+  Test08_QueueFullBehavior  
+ 
+  Previously, Test08 expected an exception. With adaptive backpressure, it should instead slow down rather than fail.
+}
 procedure TTestProducerConsumerThreadPool.Test08_QueueFullBehavior;
+const
+  QUEUE_SIZE = 2;  // Very small queue
+  THREAD_COUNT = 1; // Single thread to make queue fill up faster
 var
   I: Integer;
   ExceptionRaised: Boolean;
+  ExceptionMessage: string;
+  Config: TBackpressureConfig;
 begin
   LogTest('Test08_QueueFullBehavior starting...');
-  ExceptionRaised := False;
   
+  // Create thread pool with limited queue
   FThreadPool.Free;
-  FThreadPool := TProducerConsumerThreadPool.Create(1);
+  FThreadPool := TProducerConsumerThreadPool.Create(THREAD_COUNT, QUEUE_SIZE);
   
+  // Configure aggressive backpressure
+  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  Config.MaxAttempts := 2;
+  Config.LowLoadDelay := 0;    // Disable backpressure delays
+  Config.MediumLoadDelay := 0;
+  Config.HighLoadDelay := 0;
+  FThreadPool.WorkQueue.BackpressureConfig := Config;
+  
+  ExceptionRaised := False;
   try
-    for I := 1 to STRESS_TEST_TASKS do
+    // Queue more tasks than the queue can hold
+    for I := 1 to QUEUE_SIZE * 3 do // Try to queue more tasks
     begin
-      FThreadPool.Queue(@SlowTask);
-      // LogTest('Queued task ' + IntToStr(I));
+      LogTest(Format('Queueing task %d of %d', [I, QUEUE_SIZE * 3]));
+      FThreadPool.Queue(@LongTask); // Use LongTask (500ms) to ensure queue fills up
     end;
   except
     on E: Exception do
     begin
       ExceptionRaised := True;
-      LogTest('Got expected exception: ' + E.Message);
-      AssertTrue('Should raise queue full exception', 
-        E.Message = 'Queue is full');
+      ExceptionMessage := E.Message;
+      LogTest('Got exception: ' + ExceptionMessage);
     end;
   end;
-  
-  AssertTrue('Should have raised queue full exception', ExceptionRaised);
-  FThreadPool.WaitForAll;
+
+  AssertTrue('Should have raised an exception', ExceptionRaised);
+  AssertEquals('Should raise queue full after max attempts',
+    'Queue is full after maximum attempts', ExceptionMessage);
+    
   LogTest('Test08_QueueFullBehavior finished');
 end;
+
 
 procedure TTestProducerConsumerThreadPool.Test09_ErrorHandling;
 var
@@ -312,6 +357,148 @@ begin
   AssertTrue('WaitForAll should wait for task completion', 
     ElapsedMs >= 100);
   LogTest('Test10_WaitForAll finished');
+end;
+
+
+procedure TTestProducerConsumerThreadPool.Test11_BackpressureConfig;
+var
+  Config: TBackpressureConfig;
+begin
+  LogTest('Test11_BackpressureConfig starting...');
+  
+  // Test default configuration
+  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  AssertEquals('Default low threshold', 0.5, Config.LowLoadThreshold);
+  AssertEquals('Default medium threshold', 0.7, Config.MediumLoadThreshold);
+  AssertEquals('Default high threshold', 0.9, Config.HighLoadThreshold);
+  
+  // Test configuration changes
+  Config.LowLoadThreshold := 0.6;
+  Config.MediumLoadThreshold := 0.8;
+  Config.HighLoadThreshold := 0.95;
+  Config.LowLoadDelay := 5;
+  Config.MediumLoadDelay := 20;
+  Config.HighLoadDelay := 50;
+  
+  FThreadPool.WorkQueue.BackpressureConfig := Config;
+  
+  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  AssertEquals('Modified low threshold', 0.6, Config.LowLoadThreshold);
+  AssertEquals('Modified medium threshold', 0.8, Config.MediumLoadThreshold);
+  AssertEquals('Modified high threshold', 0.95, Config.HighLoadThreshold);
+  
+  LogTest('Test11_BackpressureConfig finished');
+end;
+
+procedure TTestProducerConsumerThreadPool.Test12_LoadFactorCalculation;
+var
+  LoadFactor: Double;
+begin
+  LogTest('Test12_LoadFactorCalculation starting...');
+  
+  // Empty queue
+  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  AssertEquals('Empty queue load factor', 0.0, LoadFactor);
+  
+  // Add some tasks
+  FThreadPool.Queue(@SleepTask);
+  FThreadPool.Queue(@SleepTask);
+  
+  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  AssertTrue('Partial queue load factor', (LoadFactor > 0.0) and (LoadFactor < 1.0));
+  
+  FThreadPool.WaitForAll;
+  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  AssertEquals('Empty queue after processing', 0.0, LoadFactor);
+  
+  LogTest('Test12_LoadFactorCalculation finished');
+end;
+
+procedure TTestProducerConsumerThreadPool.Test13_BackpressureBehavior;
+var
+  StartTime: TDateTime;
+  ElapsedMS: Int64;
+  I: Integer;
+  Config: TBackpressureConfig;
+begin
+  LogTest('Test13_BackpressureBehavior starting...');
+  
+  // Configure more aggressive backpressure for testing
+  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  Config.LowLoadThreshold := 0.3;
+  Config.LowLoadDelay := 50;  // Increased delay
+  Config.HighLoadThreshold := 0.7;
+  Config.HighLoadDelay := 100; // Increased delay
+  FThreadPool.WorkQueue.BackpressureConfig := Config;
+  
+  // Measure time with high load
+  StartTime := Now;
+  for I := 1 to 500 do // More tasks
+    FThreadPool.Queue(@SleepTask);
+  ElapsedMS := MilliSecondsBetween(Now, StartTime);
+  
+  // Should have significant delay due to backpressure
+  AssertTrue('High load should trigger backpressure', 
+    ElapsedMS > Config.HighLoadDelay);
+    
+  LogTest(Format('Elapsed time under load: %d ms', [ElapsedMS]));
+  FThreadPool.WaitForAll;
+  LogTest('Test13_BackpressureBehavior finished');
+end;
+
+procedure TTestProducerConsumerThreadPool.Test14_AdaptivePerformance;
+const
+  LOW_LOAD_TASKS = 2;     // Just a couple tasks
+  HIGH_LOAD_TASKS = 16;   // Significant number of tasks
+var
+  StartTime: TDateTime;
+  LowLoadTime: Int64;
+  HighLoadTime: Int64;
+  I: Integer;
+  NormalizedLowTime: Double;
+  NormalizedHighTime: Double;
+  Ratio: Double;
+  Config: TBackpressureConfig;
+begin
+  LogTest('Test14_AdaptivePerformance starting...');
+  
+  // Disable backpressure for cleaner measurements
+  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  Config.LowLoadDelay := 0;
+  Config.MediumLoadDelay := 0;
+  Config.HighLoadDelay := 0;
+  FThreadPool.WorkQueue.BackpressureConfig := Config;
+  
+  // Measure low load (tasks can run in parallel)
+  StartTime := Now;
+  for I := 1 to LOW_LOAD_TASKS do
+    FThreadPool.Queue(@LongTask);
+  FThreadPool.WaitForAll;
+  LowLoadTime := MilliSecondsBetween(Now, StartTime);
+
+  Sleep(100); // Short delay between tests
+
+  // Measure high load (forces queuing and serialization)
+  StartTime := Now;
+  for I := 1 to HIGH_LOAD_TASKS do
+    FThreadPool.Queue(@LongTask);
+  FThreadPool.WaitForAll;
+  HighLoadTime := MilliSecondsBetween(Now, StartTime);
+
+  // Calculate normalized times
+  NormalizedLowTime := LowLoadTime / LOW_LOAD_TASKS;
+  NormalizedHighTime := HighLoadTime / HIGH_LOAD_TASKS;
+  Ratio := NormalizedHighTime / NormalizedLowTime;
+
+  LogTest(Format('Low load time: %d ms for %d tasks (%.2f ms/task)',
+    [LowLoadTime, LOW_LOAD_TASKS, NormalizedLowTime]));
+  LogTest(Format('High load time: %d ms for %d tasks (%.2f ms/task)',
+    [HighLoadTime, HIGH_LOAD_TASKS, NormalizedHighTime]));
+  LogTest(Format('Performance ratio: %.2fx', [Ratio]));
+
+  AssertTrue('High load should be proportionally slower', Ratio > 1.5);
+  
+  LogTest('Test14_AdaptivePerformance finished');
 end;
 
 initialization
