@@ -176,15 +176,25 @@ begin
   end;
 
   try
-    if FWorkQueue.TryEnqueue(WorkItem) then
+    Result := FWorkQueue.TryEnqueue(WorkItem);
+    if Result then
     begin
       DebugLog(Format('Work item queued (Load: %.1f%%)', 
         [FWorkQueue.LoadFactor * 100]));
-      Result := True;
       Exit;
     end;
-    
-    // If enqueue failed, decrease count
+  except
+    on E: EQueueFullException do
+    begin
+      DebugLog('Failed to queue work item: ' + E.Message);
+      // Just return False, don't re-raise
+      Result := False;
+    end;
+  end;
+  
+  // Decrement count if we failed to queue
+  if not Result then
+  begin
     FWorkItemLock.Enter;
     try
       Dec(FWorkItemCount);
@@ -192,18 +202,6 @@ begin
         FCompletionEvent.SetEvent;
     finally
       FWorkItemLock.Leave;
-    end;
-    
-  except
-    on E: EQueueFullException do
-    begin
-      DebugLog('Failed to queue work item: ' + E.Message);
-      raise; // Re-raise the original EQueueFullException
-    end;
-    on E: Exception do
-    begin
-      DebugLog('Unexpected error while queueing work item: ' + E.Message);
-      raise; // Re-raise the original exception
     end;
   end;
 end;
@@ -222,7 +220,10 @@ begin
     WorkItem.FItemType := witProcedure;
     
     if not TryQueueWorkItem(WorkItem) then
+    begin
+      // Create a new exception here instead of propagating
       raise EQueueFullException.Create('Queue is full');
+    end;
   except
     WorkItem.Free;
     raise;
@@ -243,7 +244,10 @@ begin
     WorkItem.FItemType := witMethod;
     
     if not TryQueueWorkItem(WorkItem) then
+    begin
+      // Create a new exception here instead of propagating
       raise EQueueFullException.Create('Queue is full');
+    end;
   except
     WorkItem.Free;
     raise;
@@ -265,7 +269,10 @@ begin
     WorkItem.FItemType := witProcedureIndex;
     
     if not TryQueueWorkItem(WorkItem) then
+    begin
+      // Create a new exception here instead of propagating
       raise EQueueFullException.Create('Queue is full');
+    end;
   except
     WorkItem.Free;
     raise;
@@ -288,7 +295,10 @@ begin
     WorkItem.FItemType := witMethodIndex;
     
     if not TryQueueWorkItem(WorkItem) then
+    begin
+      // Create a new exception here instead of propagating
       raise EQueueFullException.Create('Queue is full');
+    end;
   except
     WorkItem.Free;
     raise;
@@ -546,17 +556,24 @@ function TThreadSafeQueue.TryEnqueue(AItem: IWorkItem): boolean;
 var
   Attempts: Integer;
 begin
+  DebugLog('TThreadSafeQueue.TryEnqueue: Starting');
+  if AItem = nil then
+  begin
+    DebugLog('TThreadSafeQueue.TryEnqueue: Nil item received');
+    Exit(False);
+  end;
+    
   Attempts := 0;
   Result := False;
   
   repeat
-    // Apply backpressure before attempting to enqueue
     ApplyBackpressure;
     
     FLock.Enter;
     try
       if FCount < FCapacity then
       begin
+        DebugLog('TThreadSafeQueue.TryEnqueue: Adding item to queue');
         FItems[FTail] := AItem;
         FTail := (FTail + 1) mod FCapacity;
         Inc(FCount);
@@ -564,21 +581,20 @@ begin
         Result := True;
         Exit;
       end;
+      DebugLog(Format('TThreadSafeQueue.TryEnqueue: Queue full (Count: %d, Capacity: %d)', [FCount, FCapacity]));
     finally
       FLock.Leave;
     end;
     
     Inc(Attempts);
-    // Move the exception outside the lock
     if Attempts >= FBackpressureConfig.MaxAttempts then
-      Break;
+    begin
+      DebugLog('TThreadSafeQueue.TryEnqueue: Max attempts reached');
+      Exit(False); // Just return False instead of raising exception
+    end;
       
-    Sleep(10); // Short delay between attempts
+    Sleep(10);
   until Result;
-  
-  // Raise the exception after all attempts have failed
-  if not Result then
-    raise EQueueFullException.Create('Queue is full after maximum attempts');
 end;
 
 end.
