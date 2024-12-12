@@ -184,17 +184,7 @@ begin
       Exit;
     end;
   except
-    on E: EQueueFullException do
-    begin
-      DebugLog('Failed to queue work item: ' + E.Message);
-      // Just return False, don't re-raise
-      Result := False;
-    end;
-  end;
-  
-  // Decrement count if we failed to queue
-  if not Result then
-  begin
+    // Decrement count on exception
     FWorkItemLock.Enter;
     try
       Dec(FWorkItemCount);
@@ -203,6 +193,17 @@ begin
     finally
       FWorkItemLock.Leave;
     end;
+    raise;  // Re-raise the exception
+  end;
+  
+  // Decrement count if enqueue returned false
+  FWorkItemLock.Enter;
+  try
+    Dec(FWorkItemCount);
+    if FWorkItemCount = 0 then
+      FCompletionEvent.SetEvent;
+  finally
+    FWorkItemLock.Leave;
   end;
 end;
 
@@ -219,13 +220,9 @@ begin
     WorkItem.FProcedure := AProcedure;
     WorkItem.FItemType := witProcedure;
     
-    if not TryQueueWorkItem(WorkItem) then
-    begin
-      // Create a new exception here instead of propagating
-      raise EQueueFullException.Create('Queue is full');
-    end;
+    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
   except
-    WorkItem.Free;
+    WorkItem.Free;  // Free the work item on any exception
     raise;
   end;
 end;
@@ -243,13 +240,9 @@ begin
     WorkItem.FMethod := AMethod;
     WorkItem.FItemType := witMethod;
     
-    if not TryQueueWorkItem(WorkItem) then
-    begin
-      // Create a new exception here instead of propagating
-      raise EQueueFullException.Create('Queue is full');
-    end;
+    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
   except
-    WorkItem.Free;
+    WorkItem.Free;  // Free the work item on any exception
     raise;
   end;
 end;
@@ -268,13 +261,9 @@ begin
     WorkItem.FIndex := AIndex;
     WorkItem.FItemType := witProcedureIndex;
     
-    if not TryQueueWorkItem(WorkItem) then
-    begin
-      // Create a new exception here instead of propagating
-      raise EQueueFullException.Create('Queue is full');
-    end;
+    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
   except
-    WorkItem.Free;
+    WorkItem.Free;  // Free the work item on any exception
     raise;
   end;
 end;
@@ -283,8 +272,7 @@ end;
   Note:
   The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
 }
-procedure TProducerConsumerThreadPool.Queue(
-  AMethod: TThreadMethodIndex; AIndex: Integer);
+procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
 begin
@@ -294,13 +282,9 @@ begin
     WorkItem.FIndex := AIndex;
     WorkItem.FItemType := witMethodIndex;
     
-    if not TryQueueWorkItem(WorkItem) then
-    begin
-      // Create a new exception here instead of propagating
-      raise EQueueFullException.Create('Queue is full');
-    end;
+    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
   except
-    WorkItem.Free;
+    WorkItem.Free;  // Free the work item on any exception
     raise;
   end;
 end;
@@ -590,7 +574,7 @@ begin
     if Attempts >= FBackpressureConfig.MaxAttempts then
     begin
       DebugLog('TThreadSafeQueue.TryEnqueue: Max attempts reached');
-      Exit(False); // Just return False instead of raising exception
+      raise EQueueFullException.Create('Queue is full after maximum attempts');
     end;
       
     Sleep(10);
