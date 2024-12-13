@@ -125,11 +125,8 @@ begin
   DebugLog('Creating thread pool with ' + IntToStr(AThreadCount) + ' threads');
   inherited Create(AThreadCount);
 
-  if AThreadCount <= 0 then
-    FLocalThreadCount := CPUCount
-  // Default to CPUCount if AThreadCount is 0 or negative
-  else
-    FLocalThreadCount := AThreadCount;
+  // Set the local thread count to the base thread count
+  FLocalThreadCount := FThreadCount;
 
   DebugLog('Actual thread count: ' + IntToStr(FLocalThreadCount));
 

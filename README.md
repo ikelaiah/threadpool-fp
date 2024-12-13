@@ -367,12 +367,25 @@ May take up to 5 mins to run all tests.
 
 ## 🧵 Thread Management
 
+- **Thread Count Rules**
+  - Default: Uses ProcessorCount when thread count ≤ 0
+  - Minimum: 4 threads enforced
+  - Maximum: 2× ProcessorCount
+  - Created and fixed at startup
+
+- **Simple Thread Pool**
+  - Direct task execution
+  - No queuing overhead
+  - Continuous task processing
+  - Clean shutdown handling
+
+- **Producer-Consumer Thread Pool**
+  - Queue-based task processing (1024 items)
+  - Sleep when queue empty (100ms)
+  - Handles queue full conditions
+  - Graceful termination support
+
 ### Simple Thread Pool
-- **Thread Creation**
-  - Automatic thread count adjustment
-  - Minimum 4 threads enforced
-  - Maximum 2× ProcessorCount
-  - Created and started immediately
 
 - **Thread Behavior**
   - Direct task execution
@@ -381,11 +394,6 @@ May take up to 5 mins to run all tests.
   - Clean shutdown handling
 
 ### Producer-Consumer Thread Pool
-- **Thread Creation**
-  - Uses CPU count by default
-  - No enforced minimum/maximum
-  - Created in suspended state
-  - Explicitly started after creation
 
 - **Thread Behavior**
   - Queue-based task processing
@@ -408,6 +416,8 @@ May take up to 5 mins to run all tests.
 > [!IMPORTANT]
 > Both implementations:
 > - Use `TThread.ProcessorCount` for defaults
+> - Enforce minimum 4 threads
+> - Limit maximum to 2× ProcessorCount
 > - Create threads at startup only
 > - Maintain thread safety
 > - Handle clean shutdown
