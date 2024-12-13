@@ -43,25 +43,26 @@ uses ThreadPool.Simple;
 uses ThreadPool.ProducerConsumer;
 ```
 - Queue-based task processing (1024 items)
-- Better for high volume tasks
-- Handles queue full conditions
-- More sophisticated error handling
+- Built-in backpressure handling
+- Configurable retry mechanism
+- Debug logging enabled by default
+- Enhanced error handling
 - Full control over execution
 
-The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with a simple fail-fast strategy fortask management:
+The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with backpressure and retry mechanisms:
 
 - **Fixed-Size Circular Buffer**
   - **Capacity:** The task queue is limited to 1024 items to ensure predictable memory usage.
   - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
 
-- **Fail-Fast Approach**
-  - **Immediate Feedback:** When the queue reaches its maximum capacity, any attempt to enqueue additional tasks will fail instantly.
-  - **Manual Handling Required:** Users must implement their own logic to handle scenarios where the task queue is full, such as retry mechanisms, task prioritization, or dropping tasks as necessary.
+- **Built-in Retry Mechanism**
+  - **Automatic Retries:** When queue is full, the system will automatically retry up to 5 times (configurable)
+  - **Backpressure Delays:** Each retry attempt includes adaptive delays based on queue load
+  - **Exception Handling:** Throws EQueueFullException after maximum attempts are exhausted
 
 > [!WARNING]
 > 
-> Since the queue does not dynamically expand, it is crucial to manage task production rates to prevent queue saturation.Implement appropriate error handling to manage cases when the queue is full.
-
+> While the system includes automatic retry mechanisms, it's recommended that users implement their own error handling strategies for scenarios where the queue remains full after all retry attempts.
 
 ### 🎯 Shared Features
 
@@ -128,9 +129,9 @@ begin
     try
       Pool.Queue(@MyTask);
     except
-      on E: Exception do
-        if E.Message = 'Queue is full' then
-          // Handle full queue
+      on E: EQueueFullException do
+        // Handle queue full after retries
+        WriteLn('Queue is full after retries: ', E.Message);
     end;
     Pool.WaitForAll;
   finally
@@ -168,7 +169,7 @@ begin
 end.
 ```
 
-## ⚠️ Error Handling
+## ⚠️ Error Handling Simple Thread Pool
 
 ```pascal
 program ErrorHandling;
@@ -203,6 +204,47 @@ begin
 end.
 ```
 
+## ⚠️ Error Handling Producer-Consumer Thread Pool
+
+```pascal
+program ErrorHandling;
+
+{$mode objfpc}{$H+}{$J-}
+
+uses
+  Classes, SysUtils, ThreadPool.ProducerConsumer;
+
+procedure RiskyProcedure;
+begin
+  raise Exception.Create('Something went wrong!');
+end;
+
+var
+  Pool: TProducerConsumerThreadPool;
+begin
+  Pool := TProducerConsumerThreadPool.Create;
+  try
+    try
+      Pool.Queue(@RiskyProcedure);
+    except
+      on E: EQueueFullException do
+        WriteLn('Queue is full after retries: ', E.Message);
+    end;
+    
+    Pool.WaitForAll;
+    
+    // Check for errors after completion
+    if Pool.LastError <> '' then
+    begin
+      WriteLn('An error occurred: ', Pool.LastError);
+      Pool.ClearLastError;  // Clear for reuse if needed
+    end;
+  finally
+    Pool.Free;
+  end;
+end.
+```
+
 ### 💡 Tips
 
 > [!NOTE]
@@ -210,6 +252,7 @@ end.
 > - 🔍 Error messages include thread IDs for debugging
 > - ⚡ The pool continues operating after exceptions
 > - 🔄 Error state can be cleared for reuse
+> - 📝 Debug logging is enabled by default
 
 
 ### 🛠️ Custom Thread Pool
@@ -271,11 +314,14 @@ end;
 5. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
    - High volume task processing
    - Queue full handling
+   - Backpressure demonstration
+   - Performance monitoring
 
 6. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
    - Queue-based task processing
    - Thread-safe message handling
    - Graceful shutdown
+   - Error handling patterns
 
 
 ## 🛠️ Installation
@@ -302,7 +348,6 @@ end;
 - 💻 Free Pascal 3.2.2 or later
 - 📦 Lazarus 3.6.0 or later
 - 🆓 No external dependencies
-
 
 ## 📚 Documentation
 
@@ -347,6 +392,12 @@ May take up to 5 mins to run all tests.
   - Sleep when queue empty (100ms)
   - Handles queue full conditions
   - Graceful termination support
+
+- **Backpressure Handling**
+  - Monitors queue load factor
+  - Applies adaptive delays
+  - Automatic retry mechanism
+  - Configurable thresholds
 
 ### Common Thread Management
 - Thread count fixed after creation
