@@ -28,15 +28,18 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 ## 📑 Table of Contents
 - [🚀 ThreadPool for Free Pascal](#-threadpool-for-free-pascal)
   - [📑 Table of Contents](#-table-of-contents)
-  - [✨ Features \& Implementations](#-features--implementations)
-    - [1. 🚀 Simple Thread Pool (ThreadPool.Simple)](#1--simple-thread-pool-threadpoolsimple)
-    - [2. 🏭 Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)](#2--producer-consumer-thread-pool-threadpoolproducerconsumer)
+  - [✨ Features](#-features)
+    - [🧵 ThreadPool Implementations](#-threadpool-implementations)
+      - [1. Simple Thread Pool (ThreadPool.Simple)](#1-simple-thread-pool-threadpoolsimple)
+      - [2. Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)](#2-producer-consumer-thread-pool-threadpoolproducerconsumer)
     - [🎯 Shared Features](#-shared-features)
     - [🔄 Choosing an Implementation](#-choosing-an-implementation)
     - [Example Comparison](#example-comparison)
   - [🏃 Quick Start](#-quick-start)
-  - [⚠️ Error Handling Simple Thread Pool](#️-error-handling-simple-thread-pool)
-  - [⚠️ Error Handling Producer-Consumer Thread Pool](#️-error-handling-producer-consumer-thread-pool)
+    - [Simple Thread Pool](#simple-thread-pool)
+    - [Producer-Consumer Thread Pool](#producer-consumer-thread-pool)
+    - [⚠️ Error Handling Simple Thread Pool](#️-error-handling-simple-thread-pool)
+    - [⚠️ Error Handling Producer-Consumer Thread Pool](#️-error-handling-producer-consumer-thread-pool)
     - [💡 Tips](#-tips)
     - [🛠️ Custom Thread Pool](#️-custom-thread-pool)
     - [🛠️ When to Use Each](#️-when-to-use-each)
@@ -48,18 +51,20 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
   - [📚 Documentation](#-documentation)
   - [🧪 Testing](#-testing)
   - [🧵 Thread Management](#-thread-management)
-    - [Simple Thread Pool](#simple-thread-pool)
-    - [Producer-Consumer Thread Pool](#producer-consumer-thread-pool)
+    - [Simple Thread Pool](#simple-thread-pool-1)
+    - [Producer-Consumer Thread Pool](#producer-consumer-thread-pool-1)
     - [Common Thread Management](#common-thread-management)
   - [🚧 Planned/In Progress](#-plannedin-progress)
   - [👏 Acknowledgments](#-acknowledgments)
   - [📄 License](#-license)
 
-## ✨ Features & Implementations
+## ✨ Features
 
 This library provides two thread pool implementations, each with its own strengths:
 
-### 1. 🚀 Simple Thread Pool (ThreadPool.Simple)
+### 🧵 ThreadPool Implementations
+
+#### 1. Simple Thread Pool (ThreadPool.Simple)
 ```pascal
 uses ThreadPool.Simple;
 ```
@@ -69,7 +74,7 @@ uses ThreadPool.Simple;
 - Best for simple parallel tasks
 - Lower memory overhead
 
-### 2. 🏭 Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)
+#### 2. Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)
 ```pascal
 uses ThreadPool.ProducerConsumer;
 ```
@@ -178,6 +183,8 @@ end;
 
 ## 🏃 Quick Start
 
+### Simple Thread Pool
+
 ```pascal
 program QuickStart;
 
@@ -204,7 +211,45 @@ begin
 end.
 ```
 
-## ⚠️ Error Handling Simple Thread Pool
+### Producer-Consumer Thread Pool
+
+```pascal
+program ProdConSimpleDemo;
+
+{$mode objfpc}{$H+}{$J-}
+
+uses
+  Classes, SysUtils, ThreadPool.ProducerConsumer;
+
+procedure DoWork;
+begin
+  WriteLn('Working in thread: ', GetCurrentThreadId);
+end;
+
+var
+  Pool: TProducerConsumerThreadPool;
+
+begin
+  Pool := TProducerConsumerThreadPool.Create;  // Uses CPU count for threads
+  try
+    // Queue some work
+    Pool.Queue(@DoWork);
+    Pool.Queue(@DoWork);
+    Pool.Queue(@DoWork);
+
+    // Wait for all tasks to complete
+    Pool.WaitForAll;
+  finally
+    Pool.Free;
+  end;
+
+  // Pause console
+  WriteLn('Press Enter to exit...');
+  ReadLn;
+end.
+```
+
+### ⚠️ Error Handling Simple Thread Pool
 
 ```pascal
 program ErrorHandling;
@@ -239,7 +284,7 @@ begin
 end.
 ```
 
-## ⚠️ Error Handling Producer-Consumer Thread Pool
+### ⚠️ Error Handling Producer-Consumer Thread Pool
 
 ```pascal
 program ErrorHandling;
@@ -346,13 +391,17 @@ end;
 
 ### Producer-Consumer Examples
 
-5. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
+5. 🎓 **Simple Demo** (`examples/ProdConSimpleDemo/ProdConSimpleDemo.lpr`)
+   - Basic usage with ProducerConsumerThreadPool
+   - Demonstrates procedures
+   
+6. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
    - High volume task processing
    - Queue full handling
    - Backpressure demonstration
    - Performance monitoring
 
-6. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
+7. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
    - Queue-based task processing
    - Thread-safe message handling
    - Graceful shutdown
