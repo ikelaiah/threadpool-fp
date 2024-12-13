@@ -24,6 +24,37 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 >    - Rust with [threadpool](https://github.com/lifthrasiir/threadpool)
 >    - Any other language that supports modern threading
 
+
+## 📑 Table of Contents
+- [🚀 ThreadPool for Free Pascal](#-threadpool-for-free-pascal)
+  - [📑 Table of Contents](#-table-of-contents)
+  - [✨ Features \& Implementations](#-features--implementations)
+    - [1. 🚀 Simple Thread Pool (ThreadPool.Simple)](#1--simple-thread-pool-threadpoolsimple)
+    - [2. 🏭 Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)](#2--producer-consumer-thread-pool-threadpoolproducerconsumer)
+    - [🎯 Shared Features](#-shared-features)
+    - [🔄 Choosing an Implementation](#-choosing-an-implementation)
+    - [Example Comparison](#example-comparison)
+  - [🏃 Quick Start](#-quick-start)
+  - [⚠️ Error Handling Simple Thread Pool](#️-error-handling-simple-thread-pool)
+  - [⚠️ Error Handling Producer-Consumer Thread Pool](#️-error-handling-producer-consumer-thread-pool)
+    - [💡 Tips](#-tips)
+    - [🛠️ Custom Thread Pool](#️-custom-thread-pool)
+    - [🛠️ When to Use Each](#️-when-to-use-each)
+  - [📚 Examples](#-examples)
+    - [Simple Thread Pool Examples](#simple-thread-pool-examples)
+    - [Producer-Consumer Examples](#producer-consumer-examples)
+  - [🛠️ Installation](#️-installation)
+  - [⚙️ Requirements](#️-requirements)
+  - [📚 Documentation](#-documentation)
+  - [🧪 Testing](#-testing)
+  - [🧵 Thread Management](#-thread-management)
+    - [Simple Thread Pool](#simple-thread-pool)
+    - [Producer-Consumer Thread Pool](#producer-consumer-thread-pool)
+    - [Common Thread Management](#common-thread-management)
+  - [🚧 Planned/In Progress](#-plannedin-progress)
+  - [👏 Acknowledgments](#-acknowledgments)
+  - [📄 License](#-license)
+
 ## ✨ Features & Implementations
 
 This library provides two thread pool implementations, each with its own strengths:
@@ -42,30 +73,27 @@ uses ThreadPool.Simple;
 ```pascal
 uses ThreadPool.ProducerConsumer;
 ```
-- Fixed-size circular queue (default 1024 items)
-- Adaptive backpressure with configurable thresholds:
-  - Load-based delays (10ms to 100ms)
-  - Configurable load thresholds (50%, 70%, 90%)
-- Automatic retry with backoff (up to 5 attempts)
-- Thread-safe error capture with thread IDs
-- Detailed debug logging (can be disabled)
+
+A thread pool with fixed-size circular buffer (1024 items) and built-in backpressure handling:
+
+- **Queue Management**
+  - Fixed-size circular buffer for predictable memory usage
+  - Efficient space reuse without dynamic resizing
+  - Configurable capacity (default: 1024 items)
+
+- **Backpressure Handling**
+  - Load-based adaptive delays (10ms to 100ms)
+  - Automatic retry mechanism (up to 5 attempts)
+  - Throws EQueueFullException when retries exhausted
+
+- **Monitoring & Debug**
+  - Thread-safe error capture with thread IDs
+  - Detailed debug logging (can be disabled)
 
 Best for:
 - High-volume task processing with rate control
-- Scenarios requiring backpressure management
-- Systems where task overflow needs graceful handling
-- Applications needing detailed execution monitoring
-
-The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with backpressure and retry mechanisms:
-
-- **Fixed-Size Circular Buffer**
-  - **Capacity:** The task queue is limited to 1024 items (configurable) to ensure predictable memory usage.
-  - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
-
-- **Built-in Retry Mechanism**
-  - **Automatic Retries:** When queue is full, the system will automatically retry up to 5 times (configurable)
-  - **Backpressure Delays:** Each retry attempt includes adaptive delays based on queue load
-  - **Exception Handling:** Throws EQueueFullException after maximum attempts are exhausted
+- Systems needing graceful overflow handling
+- Applications requiring execution monitoring
 
 > [!WARNING]
 > 
@@ -429,6 +457,11 @@ May take up to 5 mins to run all tests.
 > - Maintain thread safety
 > - Handle clean shutdown
 
+## 🚧 Planned/In Progress
+- Adaptive thread adjustment based on a load factor
+- Support for `procedure Queue(AMethod: TProc; AArgs: array of Const);`
+- More comprehensive tests
+- More examples
 
 ## 👏 Acknowledgments
 
