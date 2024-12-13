@@ -90,11 +90,6 @@ A thread pool with fixed-size circular buffer (1024 items) and built-in backpres
   - Thread-safe error capture with thread IDs
   - Detailed debug logging (can be disabled)
 
-Best for:
-- High-volume task processing with rate control
-- Systems needing graceful overflow handling
-- Applications requiring execution monitoring
-
 > [!WARNING]
 > 
 > While the system includes automatic retry mechanisms, it's recommended that users implement their own error handling strategies for scenarios where the queue remains full after all retry attempts.
