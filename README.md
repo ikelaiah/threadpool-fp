@@ -30,10 +30,9 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
   - [📑 Table of Contents](#-table-of-contents)
   - [✨ Features](#-features)
     - [ThreadPool Implementations](#threadpool-implementations)
-      - [1. Simple Thread Pool (ThreadPool.Simple)](#1-simple-thread-pool-threadpoolsimple)
-      - [2. Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)](#2-producer-consumer-thread-pool-threadpoolproducerconsumer)
+      - [1. Simple Thread Pool (`ThreadPool.Simple`)](#1-simple-thread-pool-threadpoolsimple)
+      - [2. Producer-Consumer Thread Pool (`ThreadPool.ProducerConsumer`)](#2-producer-consumer-thread-pool-threadpoolproducerconsumer)
     - [Shared Features](#shared-features)
-    - [Choosing an Implementation](#choosing-an-implementation)
   - [🏃 Quick Start](#-quick-start)
     - [Simple Thread Pool](#simple-thread-pool)
     - [Producer-Consumer Thread Pool](#producer-consumer-thread-pool)
@@ -60,7 +59,7 @@ This library provides two thread pool implementations, each with its own strengt
 
 ### ThreadPool Implementations
 
-#### 1. Simple Thread Pool (ThreadPool.Simple)
+#### 1. Simple Thread Pool (`ThreadPool.Simple`)
 ```pascal
 uses ThreadPool.Simple;
 ```
@@ -70,7 +69,7 @@ uses ThreadPool.Simple;
 - Best for simple parallel tasks
 - Lower memory overhead
 
-#### 2. Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)
+#### 2. Producer-Consumer Thread Pool (`ThreadPool.ProducerConsumer`)
 ```pascal
 uses ThreadPool.ProducerConsumer;
 ```
@@ -121,20 +120,6 @@ Best for:
   - Thread-specific error capture
   - Error messages with thread IDs
   - Continuous operation after exceptions
-
-### Choosing an Implementation
-
-**Use Simple Thread Pool when:**
-- Quick, direct task execution needed
-- Task count is moderate
-- Memory overhead is a concern
-- Global instance convenience desired
-
-**Use Producer-Consumer Pool when:**
-- High task volume expected
-- Queue management needed
-- Task buffering required
-- Full execution control needed
 
 > [!NOTE]
 > Thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for details.
@@ -272,18 +257,17 @@ end.
 > - 📊 Queue capacity monitoring available
 
 
-When to use each implementation?
-    
-**GlobalThreadPool**
-- Simple parallel tasks
-- One-off parallel operations
-- When default thread count is sufficient
-    
-**TSimpleThreadPool**
-- Custom thread count needs
-- Multiple independent thread pools
-- Advanced error handling needs
-- When you need control over pool lifetime
+**Use Simple Thread Pool when:**
+- Quick, direct task execution needed
+- Task count is moderate
+- Memory overhead is a concern
+- Global instance convenience desired
+
+**Use Producer-Consumer Pool when:**
+- High task volume expected
+- Queue management needed
+- Task buffering required
+- Full execution control needed
 
 
 ## 📚 Examples
