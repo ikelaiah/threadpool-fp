@@ -258,16 +258,18 @@ end.
 
 
 **Use Simple Thread Pool when:**
-- Quick, direct task execution needed
-- Task count is moderate
-- Memory overhead is a concern
-- Global instance convenience desired
+- Direct task execution without queuing needed
+- Task count is predictable and moderate
+- Low memory overhead is important
+- Global instance (GlobalThreadPool) convenience desired
+- Simple error handling is sufficient
 
 **Use Producer-Consumer Pool when:**
-- High task volume expected
-- Queue management needed
-- Task buffering required
-- Full execution control needed
+- High volume of tasks with rate control needed
+- Backpressure handling required
+- Queue overflow protection important
+- Need detailed execution monitoring
+- Want configurable retry mechanisms
 
 
 ## 📚 Examples
