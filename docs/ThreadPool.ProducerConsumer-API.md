@@ -124,8 +124,8 @@ type
 
 1. **Thread Safety**
    - All operations are thread-safe
-   - Queue has fixed capacity (1024 items)
-   - Built-in retry mechanism (5 attempts)
+   - Queue has fixed capacity (1024 items, configurable)
+   - Built-in retry mechanism (5 attempts, configurable)
    - Error handling is thread-safe
 
 2. **Debug Logging**
@@ -255,7 +255,7 @@ type
 ### ⚡ Performance Tips
 
 1. **Queue Management**
-   - Monitor queue capacity (1024 items)
+   - Monitor queue capacity (1024 items, configurable)
    - Handle queue full conditions
    - Consider batching small tasks
    - Watch for queue saturation
@@ -269,7 +269,7 @@ type
 ### 🚫 Limitations
 
 1. **Queue Constraints**
-   - Fixed capacity (1024 items by default)
+   - Fixed capacity (1024 items by default, configurable)
    - No dynamic resizing
    - Blocking on queue full
    - No priority queueing

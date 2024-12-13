@@ -59,7 +59,7 @@ Best for:
 The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with backpressure and retry mechanisms:
 
 - **Fixed-Size Circular Buffer**
-  - **Capacity:** The task queue is limited to 1024 items to ensure predictable memory usage.
+  - **Capacity:** The task queue is limited to 1024 items (configurable) to ensure predictable memory usage.
   - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
 
 - **Built-in Retry Mechanism**
@@ -387,7 +387,7 @@ May take up to 5 mins to run all tests.
   - Clean shutdown handling
 
 - **Producer-Consumer Thread Pool**
-  - Queue-based task processing (1024 items)
+  - Queue-based task processing (1024 items, configurable)
   - Sleep when queue empty (100ms)
   - Handles queue full conditions
   - Graceful termination support

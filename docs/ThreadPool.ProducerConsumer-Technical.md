@@ -32,7 +32,7 @@ The `ThreadPool.ProducerConsumer` unit implements a thread pool using the produc
 ### Queue Management Strategy
 
 The implementation uses a fixed-size circular buffer with backpressure:
-- **Bounded Queue:** Fixed capacity of 1024 items prevents memory exhaustion
+- **Bounded Queue:** Fixed capacity of 1024 items prevents memory exhaustion (configurable)
 - **Load Monitoring:** Continuous tracking of queue load factor
 - **Adaptive Delays:** Response times adjust based on queue load
 - **Fail-Fast Policy:** Throws EQueueFullException after max attempts
@@ -42,7 +42,7 @@ The implementation uses a fixed-size circular buffer with backpressure:
 The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with backpressure and retry mechanisms:
 
 - **Fixed-Size Circular Buffer**
-  - **Capacity:** The task queue is limited to 1024 items to ensure predictable memory usage.
+  - **Capacity:** The task queue is 1024 items (by default, configurable) to ensure predictable memory usage.
   - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
 
 - **Built-in Retry Mechanism**
@@ -177,7 +177,7 @@ flowchart LR
 
 ### TThreadSafeQueue
 - Thread-safe circular queue implementation
-- Fixed capacity (1024 items)
+- Fixed capacity (1024 items by default, configurable)
 - Provides TryEnqueue and TryDequeue operations
 - Handles queue full/empty conditions
 - Uses critical section for thread safety
@@ -207,7 +207,7 @@ flowchart LR
 - Last error accessible via LastError property
 
 ## Performance Considerations
-- Fixed queue size (1024 items)
+- Fixed queue size (1024 items by default, configurable)
 - Adaptive delays based on queue load
 - Worker threads sleep 100ms when queue empty
 - Thread count optimized for CPU count by default
@@ -282,7 +282,7 @@ end;
 
 #### Current Approach
 The implementation uses a fixed-size circular buffer with backpressure:
-- **Bounded Queue:** Fixed capacity of 1024 items prevents memory exhaustion
+- **Bounded Queue:** Fixed capacity of 1024 items (by default, configurable) prevents memory exhaustion
 - **Thread Safety:** All operations protected by FLock critical section
 - **Backpressure Policy:** Adaptive delays based on queue load factor
 
@@ -361,7 +361,7 @@ end;
 
 ### Queue Constraints
 1. **Fixed Capacity**
-   - 1024 items maximum
+   - 1024 items maximum (by default, configurable)
    - No dynamic growth
    - Blocking on full
    - No priority support

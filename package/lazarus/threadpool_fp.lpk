@@ -39,7 +39,7 @@ uses ThreadPool.Simple;
 ```pascal
 uses ThreadPool.ProducerConsumer;
 ```
-- Fixed-size circular queue (default 1024 items)
+- Fixed-size circular queue (default 1024 items, configurable)
 - Adaptive backpressure with configurable thresholds:
   - Load-based delays (10ms to 100ms)
   - Configurable load thresholds (50%, 70%, 90%)
