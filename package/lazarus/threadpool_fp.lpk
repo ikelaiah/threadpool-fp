@@ -19,7 +19,47 @@
     </CompilerOptions>
     <Description Value="# 🚀 ThreadPool for Free Pascal
 
-A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify parallel processing for simple tasks! ⚡"/>
+A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify parallel processing for simple tasks! ⚡
+
+## ✨ Features &amp; Implementations
+
+This library provides two thread pool implementations, each with its own strengths:
+
+### 1. 🚀 Simple Thread Pool (ThreadPool.Simple)
+```pascal
+uses ThreadPool.Simple;
+```
+- Global singleton instance for quick use
+- Direct task execution
+- Automatic thread count management
+- Best for simple parallel tasks
+- Lower memory overhead
+
+### 2. 🏭 Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)
+```pascal
+uses ThreadPool.ProducerConsumer;
+```
+
+A thread pool with fixed-size circular buffer (1024 items) and built-in backpressure handling:
+
+- **Queue Management**
+  - Fixed-size circular buffer for predictable memory usage
+  - Efficient space reuse without dynamic resizing
+  - Configurable capacity (default: 1024 items)
+
+- **Backpressure Handling**
+  - Load-based adaptive delays (10ms to 100ms)
+  - Automatic retry mechanism (up to 5 attempts)
+  - Throws EQueueFullException when retries exhausted
+
+- **Monitoring &amp; Debug**
+  - Thread-safe error capture with thread IDs
+  - Detailed debug logging (can be disabled)
+
+Best for:
+- High-volume task processing with rate control
+- Systems needing graceful overflow handling
+- Applications requiring execution monitoring"/>
     <License Value="MIT License
 
 Copyright (c) 2024 Iwan Kelaiah
@@ -41,7 +81,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE. "/>
-    <Version Minor="2"/>
+    <Version Minor="3"/>
     <Files>
       <Item>
         <Filename Value="..\..\src\ThreadPool.Simple.pas"/>
@@ -50,6 +90,10 @@ SOFTWARE. "/>
       <Item>
         <Filename Value="..\..\src\ThreadPool.Types.pas"/>
         <UnitName Value="ThreadPool.Types"/>
+      </Item>
+      <Item>
+        <Filename Value="..\..\src\ThreadPool.ProducerConsumer.pas"/>
+        <UnitName Value="ThreadPool.ProducerConsumer"/>
       </Item>
     </Files>
     <RequiredPkgs>

@@ -71,7 +71,7 @@ begin
         except
           on E: Exception do
           begin
-            if E.Message = 'Queue is full' then
+            if E.Message.Contains('Queue is full') then
             begin
               // In case the queue is full, wait, then retry again
               WriteLn('Queue full, waiting...');

@@ -6,15 +6,24 @@
 
 1. **TProducerConsumerThreadPool**
    - Custom instance creation
-   - Control over thread count
-   - Fixed-size work queue (1024 items)
+   - Control over thread count and queue size
+   - Fixed-size work queue (default 1024 items)
    - Thread-safe operation
+   - Built-in backpressure handling
+   - Debug logging enabled by default
    - Error handling support
 
 ### Core Functions
 
-#### Queue Operations
+#### Constructor
+```pascal
+constructor Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
+```
+Creates a new thread pool instance.
+- `AThreadCount`: Number of worker threads. If 0, uses CPU count
+- `AQueueSize`: Size of work queue. Defaults to 1024 items
 
+#### Queue Operations
 ```pascal
 // Queue a simple procedure
 Pool.Queue(@MyProcedure);
@@ -36,11 +45,18 @@ var
 begin
   Pool := TProducerConsumerThreadPool.Create;
   try
-    Pool.ClearLastError;  // Clear any previous errors
-    Pool.Queue(@RiskyOperation);
-    Pool.WaitForAll;
+    try
+      Pool.Queue(@RiskyOperation);
+      Pool.WaitForAll;
+    except
+      on E: EQueueFullException do
+      begin
+        // Handle queue full condition
+        WriteLn('Queue is full: ', E.Message);
+      end;
+    end;
     
-    // Check for errors after completion
+    // Check for execution errors after completion
     if Pool.LastError <> '' then
       WriteLn('Error occurred: ', Pool.LastError);
   finally
@@ -59,10 +75,11 @@ Pool.WaitForAll;
 
 #### Constructor
 ```pascal
-constructor Create(AThreadCount: Integer = 0);
+constructor Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
 ```
 Creates a new thread pool instance.
-- `AThreadCount`: Number of worker threads. If 0 or negative, uses CPU count.
+- `AThreadCount`: Number of worker threads. If 0, uses CPU count
+- `AQueueSize`: Size of work queue. Defaults to 1024 items
 
 #### Queue Methods
 ```pascal
@@ -73,7 +90,8 @@ procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
 ```
 All Queue methods:
 - Are thread-safe
-- Raise Exception if queue is full
+- Support backpressure handling
+- Raise EQueueFullException if queue is full after retries
 - Support different task types
 
 #### Control Methods
@@ -88,22 +106,42 @@ property ThreadCount: Integer;  // Number of worker threads
 property LastError: string;     // Last error message
 ```
 
+#### Backpressure Configuration
+```pascal
+type
+  TBackpressureConfig = record
+    LowLoadThreshold: Double;    // Default: 0.5 (50%)
+    MediumLoadThreshold: Double; // Default: 0.7 (70%)
+    HighLoadThreshold: Double;   // Default: 0.9 (90%)
+    LowLoadDelay: Integer;       // Default: 10ms
+    MediumLoadDelay: Integer;    // Default: 50ms
+    HighLoadDelay: Integer;      // Default: 100ms
+    MaxAttempts: Integer;        // Default: 5 attempts
+  end;
+```
+
 ### 🚨 Important Notes
 
 1. **Thread Safety**
    - All operations are thread-safe
-   - Queue has fixed capacity (1024 items)
-   - Queue full raises exception
+   - Queue has fixed capacity (1024 items, configurable)
+   - Built-in retry mechanism (5 attempts, configurable)
    - Error handling is thread-safe
 
-2. **Object Lifetime**
+2. **Debug Logging**
+   - Enabled by default (DEBUG_LOG = True)
+   - Includes thread IDs and timestamps
+   - Logs queue operations and errors
+   - Helps in troubleshooting
+
+3. **Object Lifetime**
    - Keep objects alive until their methods complete
    - Wait for tasks before freeing objects
    - Use try-finally blocks for cleanup
 
-3. **Best Practices**
-   - Check queue capacity limits
-   - Handle queue full exceptions
+4. **Best Practices**
+   - Monitor queue capacity
+   - Handle EQueueFullException
    - Clear errors before reuse
    - Always wait for completion
 
@@ -189,9 +227,9 @@ type
 ### 🔍 Thread Management
 
 1. **Thread Count Rules**
-   - Minimum: Uses CPU count if AThreadCount ≤ 0
-   - Maximum: No enforced limit
-   - Default: CPU count when not specified
+   - Default: Uses `ProcessorCount` when thread count ≤ 0
+   - Minimum: 4 threads enforced
+   - Maximum: 2× `ProcessorCount`
    - Thread creation: All threads created at startup
 
 2. **Performance Tuning**
@@ -217,7 +255,7 @@ type
 ### ⚡ Performance Tips
 
 1. **Queue Management**
-   - Monitor queue capacity (1024 items)
+   - Monitor queue capacity (1024 items, configurable)
    - Handle queue full conditions
    - Consider batching small tasks
    - Watch for queue saturation
@@ -231,7 +269,7 @@ type
 ### 🚫 Limitations
 
 1. **Queue Constraints**
-   - Fixed capacity (1024 items)
+   - Fixed capacity (1024 items by default, configurable)
    - No dynamic resizing
    - Blocking on queue full
    - No priority queueing

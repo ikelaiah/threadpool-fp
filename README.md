@@ -24,11 +24,42 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 >    - Rust with [threadpool](https://github.com/lifthrasiir/threadpool)
 >    - Any other language that supports modern threading
 
-## ✨ Features & Implementations
+
+## 📑 Table of Contents
+- [🚀 ThreadPool for Free Pascal](#-threadpool-for-free-pascal)
+  - [📑 Table of Contents](#-table-of-contents)
+  - [✨ Features](#-features)
+    - [ThreadPool Implementations](#threadpool-implementations)
+      - [1. Simple Thread Pool (`ThreadPool.Simple`)](#1-simple-thread-pool-threadpoolsimple)
+      - [2. Producer-Consumer Thread Pool (`ThreadPool.ProducerConsumer`)](#2-producer-consumer-thread-pool-threadpoolproducerconsumer)
+    - [Shared Features](#shared-features)
+  - [🏃 Quick Start](#-quick-start)
+    - [Simple Thread Pool](#simple-thread-pool)
+    - [Producer-Consumer Thread Pool](#producer-consumer-thread-pool)
+    - [Error Handling Simple Thread Pool](#error-handling-simple-thread-pool)
+    - [Error Handling Producer-Consumer Thread Pool](#error-handling-producer-consumer-thread-pool)
+    - [Tips](#tips)
+  - [📚 Examples](#-examples)
+    - [Simple Thread Pool Examples](#simple-thread-pool-examples)
+    - [Producer-Consumer Examples](#producer-consumer-examples)
+  - [🛠️ Installation](#️-installation)
+  - [⚙️ Requirements](#️-requirements)
+  - [📚 Documentation](#-documentation)
+  - [🧪 Testing](#-testing)
+  - [🧵 Thread Management](#-thread-management)
+    - [Thread Count Rules](#thread-count-rules)
+    - [Implementation Characteristics](#implementation-characteristics)
+  - [🚧 Planned/In Progress](#-plannedin-progress)
+  - [👏 Acknowledgments](#-acknowledgments)
+  - [📄 License](#-license)
+
+## ✨ Features
 
 This library provides two thread pool implementations, each with its own strengths:
 
-### 1. 🚀 Simple Thread Pool (ThreadPool.Simple)
+### ThreadPool Implementations
+
+#### 1. Simple Thread Pool (`ThreadPool.Simple`)
 ```pascal
 uses ThreadPool.Simple;
 ```
@@ -38,36 +69,36 @@ uses ThreadPool.Simple;
 - Best for simple parallel tasks
 - Lower memory overhead
 
-### 2. 🏭 Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)
+#### 2. Producer-Consumer Thread Pool (`ThreadPool.ProducerConsumer`)
 ```pascal
 uses ThreadPool.ProducerConsumer;
 ```
-- Queue-based task processing (1024 items)
-- Better for high volume tasks
-- Handles queue full conditions
-- More sophisticated error handling
-- Full control over execution
 
-The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with a simple fail-fast strategy fortask management:
+A thread pool with fixed-size circular buffer (1024 items) and built-in backpressure handling:
 
-- **Fixed-Size Circular Buffer**
-  - **Capacity:** The task queue is limited to 1024 items to ensure predictable memory usage.
-  - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
+- **Queue Management**
+  - Fixed-size circular buffer for predictable memory usage
+  - Efficient space reuse without dynamic resizing
+  - Configurable capacity (default: 1024 items)
 
-- **Fail-Fast Approach**
-  - **Immediate Feedback:** When the queue reaches its maximum capacity, any attempt to enqueue additional tasks will fail instantly.
-  - **Manual Handling Required:** Users must implement their own logic to handle scenarios where the task queue is full, such as retry mechanisms, task prioritization, or dropping tasks as necessary.
+- **Backpressure Handling**
+  - Load-based adaptive delays (10ms to 100ms)
+  - Automatic retry mechanism (up to 5 attempts)
+  - Throws EQueueFullException when retries exhausted
+
+- **Monitoring & Debug**
+  - Thread-safe error capture with thread IDs
+  - Detailed debug logging (can be disabled)
 
 > [!WARNING]
 > 
-> Since the queue does not dynamically expand, it is crucial to manage task production rates to prevent queue saturation.Implement appropriate error handling to manage cases when the queue is full.
+> While the system includes automatic retry mechanisms, it's recommended that users implement their own error handling strategies for scenarios where the queue remains full after all retry attempts.
 
-
-### 🎯 Shared Features
+### Shared Features
 
 - **Thread Count Management**
   - Minimum 4 threads for optimal parallelism
-  - Maximum 2× ProcessorCount to prevent overload
+  - Maximum 2× `ProcessorCount` to prevent overload
   - Fixed count after initialization
   
 - **Task Types Support**
@@ -85,70 +116,14 @@ The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer comb
   - Error messages with thread IDs
   - Continuous operation after exceptions
 
-### 🔄 Choosing an Implementation
-
-**Use Simple Thread Pool when:**
-- Quick, direct task execution needed
-- Task count is moderate
-- Memory overhead is a concern
-- Global instance convenience desired
-
-**Use Producer-Consumer Pool when:**
-- High task volume expected
-- Queue management needed
-- Task buffering required
-- Full execution control needed
-
 > [!NOTE]
 > Thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for details.
 
-### Example Comparison
-
-**Simple Thread Pool:**
-```pascal
-uses ThreadPool.Simple;
-
-begin
-  // Use global instance
-  GlobalThreadPool.Queue(@MyTask);
-  GlobalThreadPool.WaitForAll;
-end;
-```
-
-**Producer-Consumer Thread Pool:**
-```pascal
-uses ThreadPool.ProducerConsumer;
-
-var
-  Pool: TProducerConsumerThreadPool;
-begin
-  Pool := TProducerConsumerThreadPool.Create;
-  try
-    // Handle queue full condition
-    try
-      Pool.Queue(@MyTask);
-    except
-      on E: Exception do
-        if E.Message = 'Queue is full' then
-          // Handle full queue
-    end;
-    Pool.WaitForAll;
-  finally
-    Pool.Free;
-  end;
-end;
-```
-
-
 ## 🏃 Quick Start
 
+### Simple Thread Pool
 ```pascal
-program QuickStart;
-
-{$mode objfpc}{$H+}{$J-}
-
-uses
-  Classes, SysUtils, ThreadPool.Simple;  // Note the .Simple unit suffix
+uses ThreadPool.Simple;
 
 // Simple parallel processing
 procedure ProcessItem(index: Integer);
@@ -156,19 +131,38 @@ begin
   WriteLn('Processing item: ', index);
 end;
 
-var
-  i: Integer;
 begin
-  // Queue multiple items for parallel processing
+  // Queue multiple items
   for i := 1 to 5 do
     GlobalThreadPool.Queue(@ProcessItem, i);
     
-  // Wait for all tasks to complete
   GlobalThreadPool.WaitForAll;
-end.
+end;
 ```
 
-## ⚠️ Error Handling
+### Producer-Consumer Thread Pool
+```pascal
+uses ThreadPool.ProducerConsumer;
+
+procedure DoWork;
+begin
+  WriteLn('Working in thread: ', GetCurrentThreadId);
+end;
+
+var
+  Pool: TProducerConsumerThreadPool;
+begin
+  Pool := TProducerConsumerThreadPool.Create;
+  try
+    Pool.Queue(@DoWork);
+    Pool.WaitForAll;
+  finally
+    Pool.Free;
+  end;
+end;
+```
+
+### Error Handling Simple Thread Pool
 
 ```pascal
 program ErrorHandling;
@@ -203,43 +197,74 @@ begin
 end.
 ```
 
-### 💡 Tips
-
-> [!NOTE]
-> - 🛡️ Exceptions in worker threads are caught and stored
-> - 🔍 Error messages include thread IDs for debugging
-> - ⚡ The pool continues operating after exceptions
-> - 🔄 Error state can be cleared for reuse
-
-
-### 🛠️ Custom Thread Pool
+### Error Handling Producer-Consumer Thread Pool
 
 ```pascal
-var
-  CustomPool: TSimpleThreadPool;
+program ErrorHandling;
+
+{$mode objfpc}{$H+}{$J-}
+
+uses
+  Classes, SysUtils, ThreadPool.ProducerConsumer;
+
+procedure RiskyProcedure;
 begin
-  CustomPool := TSimpleThreadPool.Create(4);  // Minimum allowed threads
-  try
-    CustomPool.Queue(@MyProcedure);
-    CustomPool.WaitForAll;
-  finally
-    CustomPool.Free;
-  end;
+  raise Exception.Create('Something went wrong!');
 end;
+
+var
+  Pool: TProducerConsumerThreadPool;
+begin
+  Pool := TProducerConsumerThreadPool.Create;
+  try
+    try
+      Pool.Queue(@RiskyProcedure);
+    except
+      on E: EQueueFullException do
+        WriteLn('Queue is full after retries: ', E.Message);
+    end;
+    
+    Pool.WaitForAll;
+    
+    // Check for errors after completion
+    if Pool.LastError <> '' then
+    begin
+      WriteLn('An error occurred: ', Pool.LastError);
+      Pool.ClearLastError;  // Clear for reuse if needed
+    end;
+  finally
+    Pool.Free;
+  end;
+end.
 ```
 
-### 🛠️ When to Use Each 
-    
-**GlobalThreadPool**
-- Simple parallel tasks
-- One-off parallel operations
-- When default thread count is sufficient
-    
-**TSimpleThreadPool**
-- Custom thread count needs
-- Multiple independent thread pools
-- Advanced error handling needs
-- When you need control over pool lifetime
+### Tips
+
+> [!NOTE]
+> **Error Handling**
+> - 🛡️ Exceptions are caught and stored with thread IDs
+> - ⚡ Pool continues operating after exceptions
+> - 🔄 Use ClearLastError to reset error state
+>
+> **Debugging**
+> - 🔍 Error messages contain thread identification
+> - 📝 Debug logging enabled by default (configurable)
+> - 📊 Queue capacity monitoring available
+
+
+**Use Simple Thread Pool when:**
+- Direct task execution without queuing needed
+- Task count is predictable and moderate
+- Low memory overhead is important
+- Global instance (GlobalThreadPool) convenience desired
+- Simple error handling is sufficient
+
+**Use Producer-Consumer Pool when:**
+- High volume of tasks with rate control needed
+- Backpressure handling required
+- Queue overflow protection important
+- Need detailed execution monitoring
+- Want configurable retry mechanisms
 
 
 ## 📚 Examples
@@ -268,14 +293,22 @@ end;
 
 ### Producer-Consumer Examples
 
-5. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
+5. 🎓 **Simple Demo** (`examples/ProdConSimpleDemo/ProdConSimpleDemo.lpr`)
+   - Basic usage with ProducerConsumerThreadPool
+   - Demonstrates procedures and methods
+   - Shows proper object lifetime
+   
+6. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
    - High volume task processing
    - Queue full handling
+   - Backpressure demonstration
+   - Performance monitoring
 
-6. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
+7. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
    - Queue-based task processing
    - Thread-safe message handling
    - Graceful shutdown
+   - Error handling patterns
 
 
 ## 🛠️ Installation
@@ -303,7 +336,6 @@ end;
 - 📦 Lazarus 3.6.0 or later
 - 🆓 No external dependencies
 
-
 ## 📚 Documentation
 
 - [ThreadPool.Simple API Documentation](docs/ThreadPool.Simple-API.md)
@@ -322,45 +354,30 @@ May take up to 5 mins to run all tests.
 
 ## 🧵 Thread Management
 
-### Simple Thread Pool
-- **Thread Creation**
-  - Automatic thread count adjustment
-  - Minimum 4 threads enforced
-  - Maximum 2× ProcessorCount
-  - Created and started immediately
+### Thread Count Rules
+- Default: Uses ProcessorCount when thread count ≤ 0
+- Minimum: 4 threads enforced
+- Maximum: 2× ProcessorCount
+- Fixed after creation (no dynamic scaling)
 
-- **Thread Behavior**
-  - Direct task execution
-  - No queuing overhead
-  - Continuous task processing
-  - Clean shutdown handling
+### Implementation Characteristics
 
-### Producer-Consumer Thread Pool
-- **Thread Creation**
-  - Uses CPU count by default
-  - No enforced minimum/maximum
-  - Created in suspended state
-  - Explicitly started after creation
+**Simple Thread Pool**
+- Direct task execution without queuing
+- Continuous task processing
+- Clean shutdown handling
 
-- **Thread Behavior**
-  - Queue-based task processing
-  - Sleep when queue empty (100ms)
-  - Handles queue full conditions
-  - Graceful termination support
+**Producer-Consumer Thread Pool**
+- Fixed-size circular queue (1024 items by default, configurable)
+- Backpressure handling with adaptive delays
+- Graceful overflow management
 
-### Common Thread Management
-- Thread count fixed after creation
-- No dynamic thread scaling
-- Thread-safe operation
-- Proper resource cleanup
 
-> [!IMPORTANT]
-> Both implementations:
-> - Use `TThread.ProcessorCount` for defaults
-> - Create threads at startup only
-> - Maintain thread safety
-> - Handle clean shutdown
-
+## 🚧 Planned/In Progress
+- Adaptive thread adjustment based on a load factor
+- Support for `procedure Queue(AMethod: TProc; AArgs: array of Const);`
+- More comprehensive tests
+- More examples
 
 ## 👏 Acknowledgments
 

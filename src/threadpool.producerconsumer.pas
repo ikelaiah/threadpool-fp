@@ -13,6 +13,20 @@ const
 procedure DebugLog(const Msg: string);
 
 type
+
+  EQueueFullException = class(Exception);
+
+  TBackpressureConfig = record
+    LowLoadThreshold: Double;    // e.g., 0.5 for 50%
+    MediumLoadThreshold: Double; // e.g., 0.7 for 70%
+    HighLoadThreshold: Double;   // e.g., 0.9 for 90%
+    LowLoadDelay: Integer;       // milliseconds
+    MediumLoadDelay: Integer;    // milliseconds
+    HighLoadDelay: Integer;      // milliseconds
+    MaxAttempts: Integer;        // maximum queue attempts
+  end;
+
+
   { Worker thread implementation for producer-consumer pattern }
   TProducerConsumerWorkerThread = class(TThread)
   private
@@ -32,6 +46,11 @@ type
     FCount: integer;
     FCapacity: integer;
     FLock: TCriticalSection;
+    FLastEnqueueTime: TDateTime;
+    FBackpressureConfig: TBackpressureConfig;
+  protected
+    function GetLoadFactor: Double;
+    procedure ApplyBackpressure;
   public
     constructor Create(ACapacity: integer);
     destructor Destroy; override;
@@ -39,6 +58,8 @@ type
     function TryDequeue(out AItem: IWorkItem): boolean;
     function GetCount: integer;
     procedure Clear;
+    property LoadFactor: Double read GetLoadFactor;
+    property BackpressureConfig: TBackpressureConfig read FBackpressureConfig write FBackpressureConfig;
   end;
 
   { Work item implementation for producer-consumer pattern }
@@ -72,8 +93,9 @@ type
     procedure ClearThreads;
     function GetThreadCount: integer; override;
     function GetLastError: string; override;
+    function TryQueueWorkItem(WorkItem: IWorkItem): Boolean;
   public
-    constructor Create(AThreadCount: integer = 0); override;
+    constructor Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
     destructor Destroy; override;
 
     { IThreadPool implementation }
@@ -82,6 +104,7 @@ type
     procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: integer); override;
     procedure Queue(AMethod: TThreadMethodIndex; AIndex: integer); override;
     procedure WaitForAll; override;
+    property WorkQueue: TThreadSafeQueue read FWorkQueue;  // Added this line
     property ThreadCount: integer read GetThreadCount;
     property LastError: string read GetLastError;
   end;
@@ -94,7 +117,7 @@ begin
     WriteLn('[', FormatDateTime('hh:nn:ss.zzz', Now), '] ', GetThreadID, ': ', Msg);
 end;
 
-constructor TProducerConsumerThreadPool.Create(AThreadCount: integer);
+constructor TProducerConsumerThreadPool.Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
 var
   I: integer;
   Thread: TProducerConsumerWorkerThread;
@@ -102,16 +125,13 @@ begin
   DebugLog('Creating thread pool with ' + IntToStr(AThreadCount) + ' threads');
   inherited Create(AThreadCount);
 
-  if AThreadCount <= 0 then
-    FLocalThreadCount := CPUCount
-  // Default to CPUCount if AThreadCount is 0 or negative
-  else
-    FLocalThreadCount := AThreadCount;
+  // Set the local thread count to the base thread count
+  FLocalThreadCount := FThreadCount;
 
   DebugLog('Actual thread count: ' + IntToStr(FLocalThreadCount));
 
   FThreads := TThreadList.Create;
-  FWorkQueue := TThreadSafeQueue.Create(1024);
+  FWorkQueue := TThreadSafeQueue.Create(AQueueSize);
   FCompletionEvent := TEvent.Create(nil, True, True, '');
   FErrorLock := TCriticalSection.Create;
   FWorkItemLock := TCriticalSection.Create;
@@ -140,202 +160,139 @@ begin
   inherited;
 end;
 
+{
+  Note:
+  The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
+
+  Benefits of using IWorkItem:
+  - Dependency Inversion: We depend on abstractions (interfaces) rather than concrete implementations
+  - Loose Coupling: The method doesn't need to know about the specific work item implementation
+  - Flexibility: We can add new work item types without modifying this method
+  - Testability: Easier to mock work items in unit tests
+  - Interface Segregation: We only need the methods defined in IWorkItem
+}
+function TProducerConsumerThreadPool.TryQueueWorkItem(WorkItem: IWorkItem): Boolean;
+begin
+  Result := False;  // Initialize Result to False
+  
+  FWorkItemLock.Enter;
+  try
+    Inc(FWorkItemCount);
+    FCompletionEvent.ResetEvent;
+  finally
+    FWorkItemLock.Leave;
+  end;
+
+  try
+    // Let TryEnqueue raise its exception directly
+    FWorkQueue.TryEnqueue(WorkItem);
+    Result := True;  // If we get here, it succeeded
+    DebugLog(Format('Work item queued (Load: %.1f%%)', 
+      [FWorkQueue.LoadFactor * 100]));
+  except
+    on E: Exception do
+    begin
+      DebugLog('TryQueueWorkItem caught exception: ' + E.Message);
+      FWorkItemLock.Enter;
+      try
+        Dec(FWorkItemCount);
+        if FWorkItemCount = 0 then
+          FCompletionEvent.SetEvent;
+      finally
+        FWorkItemLock.Leave;
+      end;
+      raise;  // Re-raise the exception
+    end;
+  end;
+end;
+
+
 procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedure);
 var
-  WorkItem: TProducerConsumerWorkItem;
+  WorkItem: TProducerConsumerWorkItem;  // Change back to class type
+  WorkItemIntf: IWorkItem;              // Add interface variable
 begin
-  DebugLog('Queueing procedure');
   WorkItem := TProducerConsumerWorkItem.Create(Self);
+  WorkItem.FProcedure := AProcedure;
+  WorkItem.FItemType := witProcedure;
+  WorkItemIntf := WorkItem;  // Assign to interface (increases ref count)
+  
   try
-    WorkItem.FProcedure := AProcedure;
-    WorkItem.FItemType := witProcedure;
-
-    FWorkItemLock.Enter;
-    try
-      Inc(FWorkItemCount);
-      DebugLog('Work item count: ' + IntToStr(FWorkItemCount));
-      FCompletionEvent.ResetEvent;
-    finally
-      FWorkItemLock.Leave;
-    end;
-
-    try
-      if not FWorkQueue.TryEnqueue(WorkItem) then
-      begin
-        DebugLog('Queue is full');
-        FWorkItemLock.Enter;
-        try
-          Dec(FWorkItemCount);
-          if FWorkItemCount = 0 then
-            FCompletionEvent.SetEvent;
-        finally
-          FWorkItemLock.Leave;
-        end;
-        raise Exception.Create('Queue is full');
-      end;
-      DebugLog('Work item queued');
-    except
-      on E: Exception do
-      begin
-        DebugLog('Failed to queue work item: ' + E.Message);
-        // FWorkItemLock.Enter;
-        //try
-        //  Dec(FWorkItemCount);
-        //  if FWorkItemCount = 0 then
-        //    FCompletionEvent.SetEvent;
-        //finally
-        //  FWorkItemLock.Leave;
-        //end;
-        raise;
-      end;
-    end;
+    TryQueueWorkItem(WorkItemIntf);
   except
-    WorkItem.Free;
-    raise;
+    on E:Exception do
+    begin
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
+      raise;
+    end;
   end;
 end;
 
 procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethod);
 var
   WorkItem: TProducerConsumerWorkItem;
+  WorkItemIntf: IWorkItem;
 begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
   WorkItem.FMethod := AMethod;
   WorkItem.FItemType := witMethod;
-
-  FWorkItemLock.Enter;
+  WorkItemIntf := WorkItem;
+  
   try
-    Inc(FWorkItemCount);
-    FCompletionEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-
-  try
-    if not FWorkQueue.TryEnqueue(WorkItem) then
-    begin
-      FWorkItemLock.Enter;
-      try
-        Dec(FWorkItemCount);
-        if FWorkItemCount = 0 then
-          FCompletionEvent.SetEvent;
-      finally
-        FWorkItemLock.Leave;
-      end;
-      raise Exception.Create('Queue is full');
-    end;
+    TryQueueWorkItem(WorkItemIntf);
   except
     on E: Exception do
     begin
-      DebugLog('Failed to queue work item: ' + E.Message);
-      //FWorkItemLock.Enter;
-      //try
-      //  Dec(FWorkItemCount);
-      //  if FWorkItemCount = 0 then
-      //    FCompletionEvent.SetEvent;
-      //finally
-      //  FWorkItemLock.Leave;
-      //end;
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
       raise;
     end;
   end;
 end;
 
-procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedureIndex;
-  AIndex: integer);
+procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
+  WorkItemIntf: IWorkItem;
 begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
   WorkItem.FProcedureIndex := AProcedure;
   WorkItem.FIndex := AIndex;
   WorkItem.FItemType := witProcedureIndex;
-
-  FWorkItemLock.Enter;
+  WorkItemIntf := WorkItem;
+  
   try
-    Inc(FWorkItemCount);
-    FCompletionEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-
-  try
-    if not FWorkQueue.TryEnqueue(WorkItem) then
-    begin
-      FWorkItemLock.Enter;
-      try
-        Dec(FWorkItemCount);
-        if FWorkItemCount = 0 then
-          FCompletionEvent.SetEvent;
-      finally
-        FWorkItemLock.Leave;
-      end;
-      raise Exception.Create('Queue is full');
-    end;
+    TryQueueWorkItem(WorkItemIntf);
   except
     on E: Exception do
     begin
-      DebugLog('Failed to queue work item: ' + E.Message);
-      //FWorkItemLock.Enter;
-      //try
-      //  Dec(FWorkItemCount);
-      //  if FWorkItemCount = 0 then
-      //    FCompletionEvent.SetEvent;
-      //finally
-      //  FWorkItemLock.Leave;
-      //end;
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
       raise;
     end;
   end;
 end;
 
-procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethodIndex;
-  AIndex: integer);
+procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
+  WorkItemIntf: IWorkItem;
 begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
   WorkItem.FMethodIndex := AMethod;
   WorkItem.FIndex := AIndex;
   WorkItem.FItemType := witMethodIndex;
-
-  FWorkItemLock.Enter;
+  WorkItemIntf := WorkItem;
+  
   try
-    Inc(FWorkItemCount);
-    FCompletionEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-
-  try
-    if not FWorkQueue.TryEnqueue(WorkItem) then
-    begin
-      FWorkItemLock.Enter;
-      try
-        Dec(FWorkItemCount);
-        if FWorkItemCount = 0 then
-          FCompletionEvent.SetEvent;
-      finally
-        FWorkItemLock.Leave;
-      end;
-      raise Exception.Create('Queue is full');
-    end;
+    TryQueueWorkItem(WorkItemIntf);
   except
     on E: Exception do
     begin
-      DebugLog('Failed to queue work item: ' + E.Message);
-      //FWorkItemLock.Enter;
-      //try
-      //  Dec(FWorkItemCount);
-      //  if FWorkItemCount = 0 then
-      //    FCompletionEvent.SetEvent;
-      //finally
-      //  FWorkItemLock.Leave;
-      //end;
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
       raise;
     end;
   end;
 end;
+
 
 procedure TProducerConsumerThreadPool.WaitForAll;
 begin
@@ -422,6 +379,41 @@ begin
   FTail := 0;
   FCount := 0;
   FLock := TCriticalSection.Create;
+
+  // Initialize default backpressure configuration
+  FBackpressureConfig.LowLoadThreshold := 0.5;     // 50%
+  FBackpressureConfig.MediumLoadThreshold := 0.7;  // 70%
+  FBackpressureConfig.HighLoadThreshold := 0.9;    // 90%
+  FBackpressureConfig.LowLoadDelay := 10;          // 10ms
+  FBackpressureConfig.MediumLoadDelay := 50;       // 50ms
+  FBackpressureConfig.HighLoadDelay := 100;        // 100ms
+  FBackpressureConfig.MaxAttempts := 5;            // 5 attempts
+
+end;
+
+procedure TThreadSafeQueue.ApplyBackpressure;
+var
+  CurrentLoad: Double;
+  WaitTime: Integer;
+begin
+  CurrentLoad := GetLoadFactor;
+  
+  // Determine wait time based on load thresholds
+  if CurrentLoad >= FBackpressureConfig.HighLoadThreshold then
+    WaitTime := FBackpressureConfig.HighLoadDelay
+  else if CurrentLoad >= FBackpressureConfig.MediumLoadThreshold then
+    WaitTime := FBackpressureConfig.MediumLoadDelay
+  else if CurrentLoad >= FBackpressureConfig.LowLoadThreshold then
+    WaitTime := FBackpressureConfig.LowLoadDelay
+  else
+    WaitTime := 0;
+    
+  if WaitTime > 0 then
+  begin
+    DebugLog(Format('Queue load at %.1f%%, applying backpressure: %dms', 
+      [CurrentLoad * 100, WaitTime]));
+    Sleep(WaitTime);
+  end;
 end;
 
 destructor TThreadSafeQueue.Destroy;
@@ -431,22 +423,7 @@ begin
   inherited;
 end;
 
-function TThreadSafeQueue.TryEnqueue(AItem: IWorkItem): boolean;
-begin
-  Result := False;
-  FLock.Enter;
-  try
-    if FCount < FCapacity then
-    begin
-      FItems[FTail] := AItem;
-      FTail := (FTail + 1) mod FCapacity;
-      Inc(FCount);
-      Result := True;
-    end;
-  finally
-    FLock.Leave;
-  end;
-end;
+
 
 function TThreadSafeQueue.TryDequeue(out AItem: IWorkItem): boolean;
 begin
@@ -552,6 +529,65 @@ begin
     end;
   end;
   DebugLog('Worker thread terminating');
+end;
+
+function TThreadSafeQueue.GetLoadFactor: Double;
+begin
+  FLock.Enter;
+  try
+    Result := FCount / FCapacity;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TThreadSafeQueue.TryEnqueue(AItem: IWorkItem): boolean;
+var
+  Attempts: Integer;
+begin
+  DebugLog('TThreadSafeQueue.TryEnqueue: Starting');
+
+  // Early validation
+  if AItem = nil then
+  begin
+    DebugLog('TThreadSafeQueue.TryEnqueue: Nil item received');
+    Exit(False);
+  end;
+    
+  Attempts := 0;
+  
+  while Attempts < FBackpressureConfig.MaxAttempts do
+  begin
+    ApplyBackpressure;
+    
+    FLock.Enter;
+    try
+      if FCount < FCapacity then
+      begin
+        DebugLog('TThreadSafeQueue.TryEnqueue: Adding item to queue');
+        FItems[FTail] := AItem;
+        FTail := (FTail + 1) mod FCapacity;
+        Inc(FCount);
+        FLastEnqueueTime := Now;
+        Exit(True);  // Success case
+      end;
+      DebugLog(Format('TThreadSafeQueue.TryEnqueue: Queue full (Count: %d, Capacity: %d)', 
+        [FCount, FCapacity]));
+    finally
+      FLock.Leave;
+    end;
+    
+    Inc(Attempts);
+    if Attempts < FBackpressureConfig.MaxAttempts then
+      Sleep(10);  // Only sleep if we're going to try again
+  end;
+  
+  // If we get here, we've exhausted all attempts
+  DebugLog('TThreadSafeQueue.TryEnqueue: Max attempts reached');
+  DebugLog('TThreadSafeQueue.TryEnqueue: Raising an exception: EQueueFullException');
+  raise EQueueFullException.Create(Format(
+    'Queue is full after %d attempts (Capacity: %d)', 
+    [FBackpressureConfig.MaxAttempts, FCapacity]));
 end;
 
 end.

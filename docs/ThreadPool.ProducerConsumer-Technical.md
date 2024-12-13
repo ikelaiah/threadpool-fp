@@ -1,23 +1,58 @@
 # ThreadPool.ProducerConsumer Technical
 
 ## Overview
-The `ThreadPool.ProducerConsumer` unit implements a thread pool using the producer-consumer pattern. It provides a thread-safe queue for work items and manages a pool of worker threads that process these items.
+The `ThreadPool.ProducerConsumer` unit implements a thread pool using the producer-consumer pattern with advanced backpressure handling. It provides a thread-safe queue for work items and manages a pool of worker threads that process these items.
+
+### Key Features
+
+1. **Backpressure Management**
+   - Configurable load thresholds and delays
+   - Default thresholds:
+     - Low Load: 50% (0.5)
+     - Medium Load: 70% (0.7)
+     - High Load: 90% (0.9)
+   - Default delays:
+     - Low Load: 10ms
+     - Medium Load: 50ms
+     - High Load: 100ms
+   - Maximum retry attempts: 5
+
+2. **Debug Logging**
+   - Enabled by default (DEBUG_LOG = True)
+   - Includes timestamps and thread IDs
+   - Logs queue operations and thread activities
+   - Helps in monitoring and debugging
+
+3. **Enhanced Error Handling**
+   - New `EQueueFullException` for queue saturation
+   - Detailed error messages with queue state
+   - Thread-safe error reporting
+   - Proper exception propagation
+
+### Queue Management Strategy
+
+The implementation uses a fixed-size circular buffer with backpressure:
+- **Bounded Queue:** Fixed capacity of 1024 items prevents memory exhaustion (configurable)
+- **Load Monitoring:** Continuous tracking of queue load factor
+- **Adaptive Delays:** Response times adjust based on queue load
+- **Fail-Fast Policy:** Throws EQueueFullException after max attempts
 
 ### Producer-Consumer Thread Pool Details
 
-The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with a simple fail-fast strategy fortask management:
+The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with backpressure and retry mechanisms:
 
 - **Fixed-Size Circular Buffer**
-  - **Capacity:** The task queue is limited to 1024 items to ensure predictable memory usage.
+  - **Capacity:** The task queue is 1024 items (by default, configurable) to ensure predictable memory usage.
   - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
 
-- **Fail-Fast Approach**
-  - **Immediate Feedback:** When the queue reaches its maximum capacity, any attempt to enqueue additional tasks will fail instantly.
-  - **Manual Handling Required:** Users must implement their own logic to handle scenarios where the task queue is full, such as retry mechanisms, task prioritization, or dropping tasks as necessary.
+- **Built-in Retry Mechanism**
+  - **Automatic Retries:** When queue is full, the system will automatically retry up to 5 times (configurable)
+  - **Backpressure Delays:** Each retry attempt includes adaptive delays based on queue load
+  - **Exception Handling:** Throws EQueueFullException after maximum attempts are exhausted
 
 > [!WARNING]
 > 
-> Since the queue does not dynamically expand, it is crucial to manage task production rates to prevent queue saturation. Implement appropriate error handling to manage cases when the queue is full.
+> While the system includes automatic retry mechanisms, it's recommended that users implement their own error handling strategies for scenarios where the queue remains full after all retry attempts.
 
 ## Architecture
 
@@ -89,9 +124,8 @@ sequenceDiagram
     
     App->>Pool: Queue(Task)
     Pool->>Queue: TryEnqueue
-    alt Queue Full
-        Queue-->>Pool: false
-        Pool-->>App: Raise Exception
+    alt Queue Full After Max Attempts
+        Queue-->>App: Raise EQueueFullException
     else Queue Space Available
         Queue-->>Pool: true
         Pool-->>App: Return
@@ -143,10 +177,12 @@ flowchart LR
 
 ### TThreadSafeQueue
 - Thread-safe circular queue implementation
-- Fixed capacity (1024 items)
+- Fixed capacity (1024 items by default, configurable)
 - Provides TryEnqueue and TryDequeue operations
 - Handles queue full/empty conditions
 - Uses critical section for thread safety
+- Implements backpressure mechanism
+- Monitors queue load factor
 
 ### TProducerConsumerWorkerThread
 - Worker thread implementation
@@ -160,25 +196,33 @@ flowchart LR
 - Uses critical sections for work item count (FWorkItemLock)
 - Uses critical sections for error handling (FErrorLock)
 - Uses event object for completion signaling (FCompletionEvent)
+- Thread-safe backpressure application
 
 ## Error Handling
-- Queue full conditions raise Exception with message 'Queue is full'
+- Queue full conditions trigger retry mechanism
+- Maximum retry attempts (default: 5)
+- EQueueFullException raised after max retries
 - Work item execution errors are captured and stored
 - Thread termination is handled gracefully
 - Last error accessible via LastError property
 
 ## Performance Considerations
-- Fixed queue size (1024 items)
+- Fixed queue size (1024 items by default, configurable)
+- Adaptive delays based on queue load
 - Worker threads sleep 100ms when queue empty
 - Thread count optimized for CPU count by default
 - Thread-safe operations with minimal locking
+- Backpressure helps prevent system overload
 
 ## Thread Management Details
 
 ### Thread Creation and Startup
 - Threads created in suspended state
 - Started explicitly after creation
-- Thread count determined at startup
+- Thread count rules:
+  - Minimum: 4 threads
+  - Maximum: 2× `ProcessorCount`
+  - Default: `ProcessorCount` when not specified
 - No dynamic thread creation/destruction
 
 ### Thread Termination
@@ -237,10 +281,10 @@ end;
 ### Queue Implementation Strategy
 
 #### Current Approach
-The implementation uses a fixed-size circular buffer with a fail-fast strategy:
-- **Bounded Queue:** Fixed capacity of 1024 items prevents memory exhaustion
+The implementation uses a fixed-size circular buffer with backpressure:
+- **Bounded Queue:** Fixed capacity of 1024 items (by default, configurable) prevents memory exhaustion
 - **Thread Safety:** All operations protected by FLock critical section
-- **Fail-Fast Policy:** Immediate failure when queue is full (returns False)
+- **Backpressure Policy:** Adaptive delays based on queue load factor
 
 
 ```pascal
@@ -317,7 +361,7 @@ end;
 
 ### Queue Constraints
 1. **Fixed Capacity**
-   - 1024 items maximum
+   - 1024 items maximum (by default, configurable)
    - No dynamic growth
    - Blocking on full
    - No priority support
@@ -381,3 +425,4 @@ end;
 - Thread stack allocation
 - Work item interface references
 - Synchronization object overhead
+
