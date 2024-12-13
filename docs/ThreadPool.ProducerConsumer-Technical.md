@@ -124,9 +124,8 @@ sequenceDiagram
     
     App->>Pool: Queue(Task)
     Pool->>Queue: TryEnqueue
-    alt Queue Full
-        Queue-->>Pool: false
-        Pool-->>App: Raise Exception
+    alt Queue Full After Max Attempts
+        Queue-->>App: Raise EQueueFullException
     else Queue Space Available
         Queue-->>Pool: true
         Pool-->>App: Return
