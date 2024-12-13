@@ -525,6 +525,8 @@ var
   Attempts: Integer;
 begin
   DebugLog('TThreadSafeQueue.TryEnqueue: Starting');
+
+  // Early validation
   if AItem = nil then
   begin
     DebugLog('TThreadSafeQueue.TryEnqueue: Nil item received');
@@ -532,9 +534,9 @@ begin
   end;
     
   Attempts := 0;
-  Result := False;
   
-  repeat
+  while Attempts < FBackpressureConfig.MaxAttempts do
+  begin
     ApplyBackpressure;
     
     FLock.Enter;
@@ -546,23 +548,24 @@ begin
         FTail := (FTail + 1) mod FCapacity;
         Inc(FCount);
         FLastEnqueueTime := Now;
-        Result := True;
-        Exit;
+        Exit(True);  // Success case
       end;
-      DebugLog(Format('TThreadSafeQueue.TryEnqueue: Queue full (Count: %d, Capacity: %d)', [FCount, FCapacity]));
+      DebugLog(Format('TThreadSafeQueue.TryEnqueue: Queue full (Count: %d, Capacity: %d)', 
+        [FCount, FCapacity]));
     finally
       FLock.Leave;
     end;
     
     Inc(Attempts);
-    if Attempts >= FBackpressureConfig.MaxAttempts then
-    begin
-      DebugLog('TThreadSafeQueue.TryEnqueue: Max attempts reached');
-      raise EQueueFullException.Create('Queue is full after maximum attempts');
-    end;
-      
-    Sleep(10);
-  until Result;
+    if Attempts < FBackpressureConfig.MaxAttempts then
+      Sleep(10);  // Only sleep if we're going to try again
+  end;
+  
+  // If we get here, we've exhausted all attempts
+  DebugLog('TThreadSafeQueue.TryEnqueue: Max attempts reached');
+  raise EQueueFullException.Create(Format(
+    'Queue is full after %d attempts (Capacity: %d)', 
+    [FBackpressureConfig.MaxAttempts, FCapacity]));
 end;
 
 end.
