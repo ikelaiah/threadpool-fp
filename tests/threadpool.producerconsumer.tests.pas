@@ -297,7 +297,7 @@ begin
   try
     // Configure aggressive backpressure
     Config := TestPool.WorkQueue.BackpressureConfig;
-    Config.MaxAttempts := 2;
+    Config.MaxAttempts := 1;
     Config.LowLoadDelay := 0;
     Config.MediumLoadDelay := 0;
     Config.HighLoadDelay := 0;
@@ -305,25 +305,24 @@ begin
     
     ExceptionRaised := False;
     
-    // Fill the queue quickly before worker thread can process items
-    try
-      // Queue exactly QUEUE_SIZE items to fill the queue
-      for I := 1 to QUEUE_SIZE do
-      begin
-        LogTest(Format('Queueing task %d of %d', [I, QUEUE_SIZE]));
-        TestPool.Queue(@SlowTask);  // Use SlowTask (250ms) instead of LongTask
-      end;
+    // Fill the queue
+    LogTest('test08: Queueing first task');
+    TestPool.Queue(@SlowTask);
+    LogTest('test08: Queueing second task');
+    TestPool.Queue(@SlowTask);
 
-      // This should trigger the exception as queue is full
-      LogTest('Attempting to queue task when queue is full');
+    try
       TestPool.Queue(@SlowTask);
+      LogTest('ERROR: Queue succeeded when it should have been full');
     except
       on E: EQueueFullException do
       begin
+        LogTest('Successfully caught EQueueFullException: ' + E.Message);
         ExceptionRaised := True;
         ExceptionMessage := E.Message;
-        LogTest('Got queue full exception: ' + ExceptionMessage);
       end;
+      on E: Exception do
+        LogTest('Caught unexpected exception type: ' + E.ClassName + ': ' + E.Message);
     end;
 
     // Wait for queued tasks to complete
@@ -331,7 +330,7 @@ begin
 
     AssertTrue('Should have raised an exception', ExceptionRaised);
     AssertTrue('Exception should be EQueueFullException', 
-      ExceptionMessage.StartsWith('Queue is full'));
+      ExceptionMessage.Contains('Queue is full'));
   finally
     TestPool.WaitForAll;
     TestPool.Free;

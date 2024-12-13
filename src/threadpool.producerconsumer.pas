@@ -176,7 +176,7 @@ end;
 }
 function TProducerConsumerThreadPool.TryQueueWorkItem(WorkItem: IWorkItem): Boolean;
 begin
-  Result := False;
+  Result := False;  // Initialize Result to False
   
   FWorkItemLock.Enter;
   try
@@ -187,26 +187,25 @@ begin
   end;
 
   try
-    Result := FWorkQueue.TryEnqueue(WorkItem);
-    if Result then
-    begin
-      DebugLog(Format('Work item queued (Load: %.1f%%)', 
-        [FWorkQueue.LoadFactor * 100]));
-      Exit;
-    end;
-    
-    // If we couldn't enqueue, raise the exception here
-    raise EQueueFullException.Create('Queue is full');
+    // Let TryEnqueue raise its exception directly
+    FWorkQueue.TryEnqueue(WorkItem);
+    Result := True;  // If we get here, it succeeded
+    DebugLog(Format('Work item queued (Load: %.1f%%)', 
+      [FWorkQueue.LoadFactor * 100]));
   except
-    FWorkItemLock.Enter;
-    try
-      Dec(FWorkItemCount);
-      if FWorkItemCount = 0 then
-        FCompletionEvent.SetEvent;
-    finally
-      FWorkItemLock.Leave;
+    on E: Exception do
+    begin
+      DebugLog('TryQueueWorkItem caught exception: ' + E.Message);
+      FWorkItemLock.Enter;
+      try
+        Dec(FWorkItemCount);
+        if FWorkItemCount = 0 then
+          FCompletionEvent.SetEvent;
+      finally
+        FWorkItemLock.Leave;
+      end;
+      raise;  // Re-raise the exception
     end;
-    raise;  // Re-raise the exception
   end;
 end;
 
@@ -221,8 +220,12 @@ begin
     WorkItem.FItemType := witProcedure;
     TryQueueWorkItem(WorkItem);  // Exception will be raised by TryQueueWorkItem if needed
   except
-    WorkItem.Free;
-    raise;
+    on E:Exception do
+    begin
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
+      WorkItem.Free;
+      raise;
+    end;
   end;
 end;
 
@@ -236,8 +239,12 @@ begin
     WorkItem.FItemType := witMethod;
     TryQueueWorkItem(WorkItem);
   except
-    WorkItem.Free;
-    raise;
+    on E: Exception do
+    begin
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
+      WorkItem.Free;
+      raise;
+    end;
   end;
 end;
 
@@ -252,8 +259,12 @@ begin
     WorkItem.FItemType := witProcedureIndex;
     TryQueueWorkItem(WorkItem);
   except
-    WorkItem.Free;
-    raise;
+    on E: Exception do
+    begin
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
+      WorkItem.Free;
+      raise;
+    end;
   end;
 end;
 
@@ -268,8 +279,12 @@ begin
     WorkItem.FItemType := witMethodIndex;
     TryQueueWorkItem(WorkItem);
   except
-    WorkItem.Free;
-    raise;
+    on E: Exception do
+    begin
+      DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
+      WorkItem.Free;
+      raise;
+    end;
   end;
 end;
 
@@ -563,6 +578,7 @@ begin
   
   // If we get here, we've exhausted all attempts
   DebugLog('TThreadSafeQueue.TryEnqueue: Max attempts reached');
+  DebugLog('TThreadSafeQueue.TryEnqueue: Raising an exception: EQueueFullException');
   raise EQueueFullException.Create(Format(
     'Queue is full after %d attempts (Capacity: %d)', 
     [FBackpressureConfig.MaxAttempts, FCapacity]));
