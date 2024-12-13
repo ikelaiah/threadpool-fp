@@ -68,7 +68,7 @@ The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer comb
 
 - **Thread Count Management**
   - Minimum 4 threads for optimal parallelism
-  - Maximum 2× ProcessorCount to prevent overload
+  - Maximum 2× `ProcessorCount` to prevent overload
   - Fixed count after initialization
   
 - **Task Types Support**
@@ -368,9 +368,9 @@ May take up to 5 mins to run all tests.
 ## 🧵 Thread Management
 
 - **Thread Count Rules**
-  - Default: Uses ProcessorCount when thread count ≤ 0
+  - Default: Uses `ProcessorCount` when thread count ≤ 0
   - Minimum: 4 threads enforced
-  - Maximum: 2× ProcessorCount
+  - Maximum: 2× `ProcessorCount`
   - Created and fixed at startup
 
 - **Simple Thread Pool**
@@ -417,7 +417,7 @@ May take up to 5 mins to run all tests.
 > Both implementations:
 > - Use `TThread.ProcessorCount` for defaults
 > - Enforce minimum 4 threads
-> - Limit maximum to 2× ProcessorCount
+> - Limit maximum to 2× `ProcessorCount`
 > - Create threads at startup only
 > - Maintain thread safety
 > - Handle clean shutdown

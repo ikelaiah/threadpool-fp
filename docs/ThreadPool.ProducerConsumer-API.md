@@ -227,9 +227,9 @@ type
 ### 🔍 Thread Management
 
 1. **Thread Count Rules**
-   - Minimum: Uses CPU count if AThreadCount ≤ 0
-   - Maximum: No enforced limit
-   - Default: CPU count when not specified
+   - Default: Uses `ProcessorCount` when thread count ≤ 0
+   - Minimum: 4 threads enforced
+   - Maximum: 2× `ProcessorCount`
    - Thread creation: All threads created at startup
 
 2. **Performance Tuning**

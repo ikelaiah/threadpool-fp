@@ -219,7 +219,10 @@ flowchart LR
 ### Thread Creation and Startup
 - Threads created in suspended state
 - Started explicitly after creation
-- Thread count determined at startup
+- Thread count rules:
+  - Minimum: 4 threads
+  - Maximum: 2× `ProcessorCount`
+  - Default: `ProcessorCount` when not specified
 - No dynamic thread creation/destruction
 
 ### Thread Termination

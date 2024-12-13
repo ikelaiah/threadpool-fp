@@ -50,7 +50,7 @@ graph TD
 1. **GlobalThreadPool**
    - Singleton instance for simple usage
    - Automatically initialized on first use
-   - Uses default thread count based on ProcessorCount
+   - Uses default thread count based on `ProcessorCount`
    - Suitable for most applications
    - Thread-safe by design
 
@@ -58,7 +58,7 @@ graph TD
    - Custom instance creation with configurable thread count
    - Multiple independent pools possible
    - Full control over pool lifetime
-   - Same thread safety guarantees as GlobalThreadPool
+   - Same thread safety guarantees as `GlobalThreadPool`
    - Useful for specialized threading scenarios
 
 Both types share the same underlying implementation and provide identical thread safety guarantees and features. The main difference is in initialization and lifetime management.
@@ -150,12 +150,12 @@ The implementation uses several synchronization mechanisms:
 
 ### Thread Count Rules
 1. Minimum: 4 threads (enforced)
-2. Maximum: 2× ProcessorCount (strictly enforced)
-3. Default: ProcessorCount when count = 0 (verified by Test11_ThreadCount)
+2. Maximum: 2× `ProcessorCount` (strictly enforced)
+3. Default: `ProcessorCount` when count = 0 (verified by Test11_ThreadCount)
 4. Auto-adjustment of invalid values:
    - Values < 4 are increased to 4
-   - Values > 2× ProcessorCount are reduced
-   - Zero defaults to ProcessorCount
+   - Values > 2× `ProcessorCount` are reduced
+   - Zero defaults to `ProcessorCount`
 
 ### Performance Considerations
 1. Efficient thread reuse (verified by stress tests)
