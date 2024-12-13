@@ -93,7 +93,7 @@ type
     procedure ClearThreads;
     function GetThreadCount: integer; override;
     function GetLastError: string; override;
-    function TryQueueWorkItem(WorkItem: TProducerConsumerWorkItem): Boolean;
+    function TryQueueWorkItem(WorkItem: IWorkItem): Boolean;
   public
     constructor Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
     destructor Destroy; override;
@@ -163,7 +163,18 @@ begin
   inherited;
 end;
 
-function TProducerConsumerThreadPool.TryQueueWorkItem(WorkItem: TProducerConsumerWorkItem): Boolean;
+{
+  Note:
+  The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
+
+  Benefits of using IWorkItem:
+  - Dependency Inversion: We depend on abstractions (interfaces) rather than concrete implementations
+  - Loose Coupling: The method doesn't need to know about the specific work item implementation
+  - Flexibility: We can add new work item types without modifying this method
+  - Testability: Easier to mock work items in unit tests
+  - Interface Segregation: We only need the methods defined in IWorkItem
+}
+function TProducerConsumerThreadPool.TryQueueWorkItem(WorkItem: IWorkItem): Boolean;
 begin
   Result := False;
   
@@ -183,8 +194,10 @@ begin
         [FWorkQueue.LoadFactor * 100]));
       Exit;
     end;
+    
+    // If we couldn't enqueue, raise the exception here
+    raise EQueueFullException.Create('Queue is full');
   except
-    // Decrement count on exception
     FWorkItemLock.Enter;
     try
       Dec(FWorkItemCount);
@@ -195,22 +208,9 @@ begin
     end;
     raise;  // Re-raise the exception
   end;
-  
-  // Decrement count if enqueue returned false
-  FWorkItemLock.Enter;
-  try
-    Dec(FWorkItemCount);
-    if FWorkItemCount = 0 then
-      FCompletionEvent.SetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
 end;
 
-{
-  Note:
-  The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
-}
+
 procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedure);
 var
   WorkItem: TProducerConsumerWorkItem;
@@ -219,18 +219,13 @@ begin
   try
     WorkItem.FProcedure := AProcedure;
     WorkItem.FItemType := witProcedure;
-    
-    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
+    TryQueueWorkItem(WorkItem);  // Exception will be raised by TryQueueWorkItem if needed
   except
-    WorkItem.Free;  // Free the work item on any exception
+    WorkItem.Free;
     raise;
   end;
 end;
 
-{
-  Note:
-  The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
-}
 procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethod);
 var
   WorkItem: TProducerConsumerWorkItem;
@@ -239,18 +234,13 @@ begin
   try
     WorkItem.FMethod := AMethod;
     WorkItem.FItemType := witMethod;
-    
-    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
+    TryQueueWorkItem(WorkItem);
   except
-    WorkItem.Free;  // Free the work item on any exception
+    WorkItem.Free;
     raise;
   end;
 end;
 
-{
-  Note:
-  The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
-}
 procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
@@ -260,18 +250,13 @@ begin
     WorkItem.FProcedureIndex := AProcedure;
     WorkItem.FIndex := AIndex;
     WorkItem.FItemType := witProcedureIndex;
-    
-    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
+    TryQueueWorkItem(WorkItem);
   except
-    WorkItem.Free;  // Free the work item on any exception
+    WorkItem.Free;
     raise;
   end;
 end;
 
-{
-  Note:
-  The retry logic is in one place only: TThreadSafeQueue.TryEnqueue
-}
 procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
@@ -281,10 +266,9 @@ begin
     WorkItem.FMethodIndex := AMethod;
     WorkItem.FIndex := AIndex;
     WorkItem.FItemType := witMethodIndex;
-    
-    TryQueueWorkItem(WorkItem);  // Will raise EQueueFullException if queue is full
+    TryQueueWorkItem(WorkItem);
   except
-    WorkItem.Free;  // Free the work item on any exception
+    WorkItem.Free;
     raise;
   end;
 end;
