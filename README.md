@@ -393,7 +393,8 @@ end;
 
 5. 🎓 **Simple Demo** (`examples/ProdConSimpleDemo/ProdConSimpleDemo.lpr`)
    - Basic usage with ProducerConsumerThreadPool
-   - Demonstrates procedures
+   - Demonstrates procedures and methods
+   - Shows proper object lifetime
    
 6. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
    - High volume task processing
