@@ -42,12 +42,19 @@ uses ThreadPool.Simple;
 ```pascal
 uses ThreadPool.ProducerConsumer;
 ```
-- Queue-based task processing (1024 items)
-- Built-in backpressure handling
-- Configurable retry mechanism
-- Debug logging enabled by default
-- Enhanced error handling
-- Full control over execution
+- Fixed-size circular queue (default 1024 items)
+- Adaptive backpressure with configurable thresholds:
+  - Load-based delays (10ms to 100ms)
+  - Configurable load thresholds (50%, 70%, 90%)
+- Automatic retry with backoff (up to 5 attempts)
+- Thread-safe error capture with thread IDs
+- Detailed debug logging (can be disabled)
+
+Best for:
+- High-volume task processing with rate control
+- Scenarios requiring backpressure management
+- Systems where task overflow needs graceful handling
+- Applications needing detailed execution monitoring
 
 The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with backpressure and retry mechanisms:
 
