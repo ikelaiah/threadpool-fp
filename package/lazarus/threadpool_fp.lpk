@@ -39,20 +39,27 @@ uses ThreadPool.Simple;
 ```pascal
 uses ThreadPool.ProducerConsumer;
 ```
-- Fixed-size circular queue (default 1024 items, configurable)
-- Adaptive backpressure with configurable thresholds:
-  - Load-based delays (10ms to 100ms)
-  - Configurable load thresholds (50%, 70%, 90%)
-- Automatic retry with backoff (up to 5 attempts)
-- Thread-safe error capture with thread IDs
-- Detailed debug logging (can be disabled)
+
+A thread pool with fixed-size circular buffer (1024 items) and built-in backpressure handling:
+
+- **Queue Management**
+  - Fixed-size circular buffer for predictable memory usage
+  - Efficient space reuse without dynamic resizing
+  - Configurable capacity (default: 1024 items)
+
+- **Backpressure Handling**
+  - Load-based adaptive delays (10ms to 100ms)
+  - Automatic retry mechanism (up to 5 attempts)
+  - Throws EQueueFullException when retries exhausted
+
+- **Monitoring &amp; Debug**
+  - Thread-safe error capture with thread IDs
+  - Detailed debug logging (can be disabled)
 
 Best for:
 - High-volume task processing with rate control
-- Scenarios requiring backpressure management
-- Systems where task overflow needs graceful handling
-- Applications needing detailed execution monitoring
-"/>
+- Systems needing graceful overflow handling
+- Applications requiring execution monitoring"/>
     <License Value="MIT License
 
 Copyright (c) 2024 Iwan Kelaiah
