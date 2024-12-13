@@ -212,18 +212,20 @@ end;
 
 procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedure);
 var
-  WorkItem: TProducerConsumerWorkItem;
+  WorkItem: TProducerConsumerWorkItem;  // Change back to class type
+  WorkItemIntf: IWorkItem;              // Add interface variable
 begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
+  WorkItem.FProcedure := AProcedure;
+  WorkItem.FItemType := witProcedure;
+  WorkItemIntf := WorkItem;  // Assign to interface (increases ref count)
+  
   try
-    WorkItem.FProcedure := AProcedure;
-    WorkItem.FItemType := witProcedure;
-    TryQueueWorkItem(WorkItem);  // Exception will be raised by TryQueueWorkItem if needed
+    TryQueueWorkItem(WorkItemIntf);
   except
     on E:Exception do
     begin
       DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
-      WorkItem.Free;
       raise;
     end;
   end;
@@ -232,17 +234,19 @@ end;
 procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethod);
 var
   WorkItem: TProducerConsumerWorkItem;
+  WorkItemIntf: IWorkItem;
 begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
+  WorkItem.FMethod := AMethod;
+  WorkItem.FItemType := witMethod;
+  WorkItemIntf := WorkItem;
+  
   try
-    WorkItem.FMethod := AMethod;
-    WorkItem.FItemType := witMethod;
-    TryQueueWorkItem(WorkItem);
+    TryQueueWorkItem(WorkItemIntf);
   except
     on E: Exception do
     begin
       DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
-      WorkItem.Free;
       raise;
     end;
   end;
@@ -251,18 +255,20 @@ end;
 procedure TProducerConsumerThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
+  WorkItemIntf: IWorkItem;
 begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
+  WorkItem.FProcedureIndex := AProcedure;
+  WorkItem.FIndex := AIndex;
+  WorkItem.FItemType := witProcedureIndex;
+  WorkItemIntf := WorkItem;
+  
   try
-    WorkItem.FProcedureIndex := AProcedure;
-    WorkItem.FIndex := AIndex;
-    WorkItem.FItemType := witProcedureIndex;
-    TryQueueWorkItem(WorkItem);
+    TryQueueWorkItem(WorkItemIntf);
   except
     on E: Exception do
     begin
       DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
-      WorkItem.Free;
       raise;
     end;
   end;
@@ -271,22 +277,25 @@ end;
 procedure TProducerConsumerThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
 var
   WorkItem: TProducerConsumerWorkItem;
+  WorkItemIntf: IWorkItem;
 begin
   WorkItem := TProducerConsumerWorkItem.Create(Self);
+  WorkItem.FMethodIndex := AMethod;
+  WorkItem.FIndex := AIndex;
+  WorkItem.FItemType := witMethodIndex;
+  WorkItemIntf := WorkItem;
+  
   try
-    WorkItem.FMethodIndex := AMethod;
-    WorkItem.FIndex := AIndex;
-    WorkItem.FItemType := witMethodIndex;
-    TryQueueWorkItem(WorkItem);
+    TryQueueWorkItem(WorkItemIntf);
   except
     on E: Exception do
     begin
       DebugLog('TProducerConsumerThreadPool.Queue: Exception caught: ' + E.Message);
-      WorkItem.Free;
       raise;
     end;
   end;
 end;
+
 
 procedure TProducerConsumerThreadPool.WaitForAll;
 begin
