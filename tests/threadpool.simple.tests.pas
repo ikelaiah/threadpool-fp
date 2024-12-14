@@ -180,13 +180,16 @@ end;
 procedure TSimpleThreadPoolTests.Test03_WorkerThreadInterface;
 var
   Thread: IWorkerThread;
+  WorkerThread: TSimpleWorkerThread;
   Pool: TSimpleThreadPool;
 begin
   Pool := TSimpleThreadPool.Create(4);
   try
-    Thread := TSimpleWorkerThread.Create(Pool);
+    WorkerThread := TSimpleWorkerThread.Create(Pool);
+    Thread := WorkerThread;  // Explicit interface conversion
     AssertTrue('TSimpleWorkerThread should implement IWorkerThread', Thread <> nil);
   finally
+    Thread := nil;
     Pool.Free;
   end;
 end;

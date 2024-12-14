@@ -27,8 +27,9 @@ type
   end;
 
   { Simple worker thread implementation }
-  TSimpleWorkerThread = class(TThread, IWorkerThread)
+  TSimpleWorkerThread = class(TThread, IWorkerThread) 
   private
+    FRefCount: Integer;
     FThreadPool: TObject;
   protected
     procedure Execute; override;
@@ -86,6 +87,7 @@ implementation
 constructor TSimpleWorkerThread.Create(AThreadPool: TObject);
 begin
   inherited Create(True);  // Create suspended
+  FRefCount := 0;
   FThreadPool := AThreadPool;
   FreeOnTerminate := False;
 end;
@@ -125,12 +127,14 @@ end;
 
 function TSimpleWorkerThread._AddRef: Integer; stdcall;
 begin
-  Result := -1; // We don't need reference counting for threads
+  Result := InterlockedIncrement(FRefCount);
 end;
 
 function TSimpleWorkerThread._Release: Integer; stdcall;
 begin
-  Result := -1; // We don't need reference counting for threads
+  Result := InterlockedDecrement(FRefCount);
+  if Result = 0 then
+    Destroy;
 end;
 
 procedure TSimpleWorkerThread.Execute;
