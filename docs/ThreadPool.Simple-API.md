@@ -1,80 +1,149 @@
-## 📚 API Documentation
+# ThreadPool.Simple API Documentation
 
-### Thread Pool Types
+## Thread Pool Types
 
-1. **GlobalThreadPool**
-   - Singleton instance for simple usage
-   - Automatically initialized
-   - Suitable for most applications
-   - Uses default thread count
+### GlobalThreadPool
 
-2. **TSimpleThreadPool**
-   - Custom instance creation
-   - Control over thread count
-   - Multiple pools possible
-   - More control over lifetime
+A ready-to-use singleton instance declared in the `ThreadPool.Simple` unit.
 
-
-### Core Functions
-
-#### Queue Operations
+- Created automatically at program startup — do **not** call `GlobalThreadPool.Free`
+- Uses the default thread count (`ProcessorCount`, minimum 4)
+- Suitable for most applications
 
 ```pascal
-// Queue a simple procedure
+uses ThreadPool.Simple;
+
 GlobalThreadPool.Queue(@MyProcedure);
-
-// Queue a method of an object
-GlobalThreadPool.Queue(@MyObject.MyMethod);
-
-// Queue a procedure with an index
-GlobalThreadPool.Queue(@MyIndexedProcedure, 42);
-
-// Queue a method with an index
-GlobalThreadPool.Queue(@MyObject.MyIndexedMethod, 42);
+GlobalThreadPool.WaitForAll;
 ```
 
-#### Error Handling
+### TSimpleThreadPool
 
-See `Test16_ExceptionHandling` and `Test18_ExceptionMessage`.
+A manually managed pool for when you need explicit control over thread count or lifetime.
+
+- Create with `TSimpleThreadPool.Create(AThreadCount)`
+- Thread count is clamped: minimum 4, maximum 2× `ProcessorCount`
+- Multiple independent pools can coexist
+- Must be freed by the caller
 
 ```pascal
+uses ThreadPool.Simple;
+
 var
-  Pool: TSimpleThreadPool; 
+  Pool: TSimpleThreadPool;
 begin
-  Pool := TSimpleThreadPool.Create;
+  Pool := TSimpleThreadPool.Create(4);
   try
-    Pool.Queue(@RiskyProcedure);
+    Pool.Queue(@MyProcedure);
     Pool.WaitForAll;
-    
-    // Check for errors after completion
-    if Pool.LastError <> '' then
-    begin
-      WriteLn('Error occurred: ', Pool.LastError);
-      // Error messages include thread ID and exception message
-      // Example: "[Thread 1234] Test exception message"
-    end;
-    
-    // Clear error state if needed for pool reuse
-    Pool.ClearLastError;
   finally
     Pool.Free;
   end;
 end;
 ```
 
-#### Synchronization
+---
+
+## Queue Overloads
+
+All four `Queue` overloads are thread-safe and can be called from any thread.
+
 ```pascal
-// Wait for all queued tasks to complete
+// 1. Plain procedure — no shared state needed
+GlobalThreadPool.Queue(@MyProcedure);
+
+// 2. Object method — task needs access to object fields
+GlobalThreadPool.Queue(@MyObject.MyMethod);
+
+// 3. Indexed procedure — loop parallelism
+GlobalThreadPool.Queue(@MyIndexedProcedure, 42);
+
+// 4. Indexed method — loop parallelism + object state
+GlobalThreadPool.Queue(@MyObject.MyIndexedMethod, 42);
+```
+
+### Type signatures (from `ThreadPool.Types`)
+
+```pascal
+TThreadProcedure      = procedure;
+TThreadMethod         = procedure of object;
+TThreadProcedureIndex = procedure(index: Integer);
+TThreadMethodIndex    = procedure(index: Integer) of object;
+```
+
+---
+
+## WaitForAll
+
+Blocks the calling thread until every queued task has finished executing.
+
+```pascal
 GlobalThreadPool.WaitForAll;
 ```
 
-### Usage Examples
+Always call `WaitForAll` before:
 
-#### 1. Simple Procedure
+- Reading results written by worker tasks
+- Freeing objects whose methods were queued
+- Calling `LastError`
+
+---
+
+## Error Handling
+
+Worker thread exceptions are caught automatically and stored in `LastError`. The pool
+continues processing remaining tasks after an exception.
+
+```pascal
+var
+  Pool: TSimpleThreadPool;
+begin
+  Pool := TSimpleThreadPool.Create(4);
+  try
+    Pool.Queue(@RiskyProcedure);
+    Pool.WaitForAll;
+
+    if Pool.LastError <> '' then
+    begin
+      // LastError holds the raw exception message of the most recent failure.
+      // If multiple tasks fail, only the last exception is stored.
+      WriteLn('Error: ', Pool.LastError);
+      Pool.ClearLastError;  // Reset before reusing the pool
+    end;
+  finally
+    Pool.Free;
+  end;
+end;
+```
+
+### Properties
+
+```pascal
+property LastError: string;   // Raw message of the most recent worker exception
+property ThreadCount: Integer; // Number of worker threads (read-only)
+```
+
+### Methods
+
+```pascal
+procedure Queue(AProcedure: TThreadProcedure);
+procedure Queue(AMethod: TThreadMethod);
+procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
+procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
+procedure WaitForAll;
+procedure ClearLastError;
+```
+
+---
+
+## Usage Examples
+
+### 1. Simple procedure
+
 ```pascal
 procedure PrintHello;
 begin
-  WriteLn('Hello from thread!');
+  WriteLn('Hello from thread ', GetCurrentThreadId);
 end;
 
 begin
@@ -83,7 +152,12 @@ begin
 end;
 ```
 
-#### 2. Object Method
+### 2. Object method
+
+> **Warning:** do not free `MyObject` until after `WaitForAll` returns. Worker
+> threads hold a reference to the object's method and will crash if the object
+> is freed while they are still running.
+
 ```pascal
 type
   TMyClass = class
@@ -92,7 +166,7 @@ type
 
 procedure TMyClass.ProcessData;
 begin
-  WriteLn('Processing in thread...');
+  WriteLn('Processing in thread ', GetCurrentThreadId);
 end;
 
 var
@@ -101,93 +175,94 @@ begin
   MyObject := TMyClass.Create;
   try
     GlobalThreadPool.Queue(@MyObject.ProcessData);
-    GlobalThreadPool.WaitForAll;
+    GlobalThreadPool.WaitForAll;  // must finish before Free below
   finally
     MyObject.Free;
   end;
 end;
 ```
 
-#### 3. Indexed Operations
+### 3. Indexed procedure (loop parallelism)
+
 ```pascal
 procedure ProcessItem(index: Integer);
 begin
-  WriteLn('Processing item: ', index);
+  WriteLn('Item ', index, ' in thread ', GetCurrentThreadId);
 end;
 
 var
   i: Integer;
 begin
-  // Process items 0 to 9 in parallel
   for i := 0 to 9 do
     GlobalThreadPool.Queue(@ProcessItem, i);
-    
+
   GlobalThreadPool.WaitForAll;
 end;
 ```
 
-### 🚨 Important Notes
-
-1. **Thread Safety**
-   - Critical sections protect shared counters (Test13_ConcurrentQueueAccess)
-   - Multiple WaitForAll calls are safe (Test16_MultipleWaits)
-   - Queue operations are thread-safe (Test15_QueueAfterWait)
-   - Object lifetime is properly managed (Test17_ObjectLifetime)
-
-1. **Object Lifetime**
-   - Keep objects alive until their queued methods complete
-   - Wait for tasks to finish before freeing objects
-   - Use `try-finally` blocks for proper cleanup
-
-2. **Best Practices**
-   - Don't queue too many small tasks
-   - Consider batching small operations
-   - Use indexed operations for better task distribution
-   - Always call `WaitForAll` before accessing results
-
-### ⚠️ Common Pitfalls
+### 4. Custom pool with error check
 
 ```pascal
-// DON'T DO THIS - Object might be freed before method executes
 var
-  MyObject: TMyClass;
+  Pool: TSimpleThreadPool;
 begin
-  MyObject := TMyClass.Create;
-  GlobalThreadPool.Queue(@MyObject.ProcessData);
-  MyObject.Free;  // Wrong! Object freed too early
-end;
-
-// DO THIS INSTEAD
-var
-  MyObject: TMyClass;
-begin
-  MyObject := TMyClass.Create;
+  Pool := TSimpleThreadPool.Create(4);
   try
-    GlobalThreadPool.Queue(@MyObject.ProcessData);
-    GlobalThreadPool.WaitForAll;  // Wait for completion
+    Pool.Queue(@RiskyProcedure);
+    Pool.WaitForAll;
+
+    if Pool.LastError <> '' then
+      WriteLn('Task failed: ', Pool.LastError);
   finally
-    MyObject.Free;  // Safe to free now
+    Pool.Free;
   end;
 end;
 ```
 
-### 🔧 Advanced Usage
+---
 
-#### Custom Thread Pool
+## Common Pitfalls
+
+### Freeing an object before WaitForAll
+
 ```pascal
-var
-  CustomPool: TSimpleThreadPool;
-begin
-  // Thread count is automatically adjusted:
-  // - Minimum: 4 threads
-  // - Maximum: 2× ProcessorCount
-  // - Default: ProcessorCount (when count = 0)
-  CustomPool := TSimpleThreadPool.Create(4);
-  try
-    CustomPool.Queue(@MyProcedure);
-    CustomPool.WaitForAll;
-  finally
-    CustomPool.Free;
-  end;
+// WRONG — worker thread may still be calling MyObject.ProcessData
+MyObject := TMyClass.Create;
+GlobalThreadPool.Queue(@MyObject.ProcessData);
+MyObject.Free;  // access violation risk
+
+// CORRECT
+MyObject := TMyClass.Create;
+try
+  GlobalThreadPool.Queue(@MyObject.ProcessData);
+  GlobalThreadPool.WaitForAll;
+finally
+  MyObject.Free;
 end;
+```
+
+### Calling Free on GlobalThreadPool
+
+```pascal
+// WRONG — the unit's finalization block already does this
+GlobalThreadPool.Free;  // double-free at program exit
+
+// CORRECT — just use it; no manual cleanup needed
+GlobalThreadPool.Queue(@MyProcedure);
+GlobalThreadPool.WaitForAll;
+```
+
+### Forgetting WaitForAll
+
+```pascal
+// WRONG — program may exit before tasks finish
+for i := 0 to 99 do
+  GlobalThreadPool.Queue(@ProcessItem, i);
+// results are incomplete or uninitialized here
+
+// CORRECT
+for i := 0 to 99 do
+  GlobalThreadPool.Queue(@ProcessItem, i);
+GlobalThreadPool.WaitForAll;
+// results are now complete
 ```

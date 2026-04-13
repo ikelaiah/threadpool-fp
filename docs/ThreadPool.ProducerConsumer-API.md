@@ -1,44 +1,130 @@
-# 📚 ThreadPool.ProducerConsumer API
+# ThreadPool.ProducerConsumer API Documentation
 
-## 🔧 Core Components
+## Overview
 
-### Thread Pool Types
+`ThreadPool.ProducerConsumer` implements a thread pool backed by a fixed-size
+circular queue with built-in backpressure. Use it when task production can
+outpace consumption and you need predictable memory usage and overflow control.
 
-1. **TProducerConsumerThreadPool**
-   - Custom instance creation
-   - Control over thread count and queue size
-   - Fixed-size work queue (default 1024 items)
-   - Thread-safe operation
-   - Built-in backpressure handling
-   - Debug logging enabled by default
-   - Error handling support
+For simpler use cases see `ThreadPool.Simple`.
 
-### Core Functions
+---
 
-#### Constructor
+## Constructor
+
 ```pascal
 constructor Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
 ```
-Creates a new thread pool instance.
-- `AThreadCount`: Number of worker threads. If 0, uses CPU count
-- `AQueueSize`: Size of work queue. Defaults to 1024 items
 
-#### Queue Operations
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `AThreadCount` | `0` (uses CPU count) | Worker threads. Clamped: min 4, max 2× `ProcessorCount` |
+| `AQueueSize` | `1024` | Circular queue capacity in work items |
+
 ```pascal
-// Queue a simple procedure
-Pool.Queue(@MyProcedure);
+// Default: CPU-count threads, 1024-item queue
+Pool := TProducerConsumerThreadPool.Create;
 
-// Queue a method of an object
-Pool.Queue(@MyObject.MyMethod);
-
-// Queue a procedure with an index
-Pool.Queue(@MyIndexedProcedure, 42);
-
-// Queue a method with an index
-Pool.Queue(@MyObject.MyIndexedMethod, 42);
+// Custom: 4 threads, 512-item queue
+Pool := TProducerConsumerThreadPool.Create(4, 512);
 ```
 
-#### Error Handling
+---
+
+## Queue Methods
+
+All four overloads are thread-safe. Each call may block briefly if the queue is
+near capacity (adaptive backpressure delays apply). After the maximum retry
+attempts are exhausted, `EQueueFullException` is raised.
+
+```pascal
+procedure Queue(AProcedure: TThreadProcedure);
+procedure Queue(AMethod: TThreadMethod);
+procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
+procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
+```
+
+```pascal
+Pool.Queue(@MyProcedure);            // plain procedure
+Pool.Queue(@MyObject.MyMethod);      // object method
+Pool.Queue(@MyIndexedProc, 42);      // indexed procedure
+Pool.Queue(@MyObject.MyMethod, 42);  // indexed method
+```
+
+### Task type signatures (from `ThreadPool.Types`)
+
+```pascal
+TThreadProcedure      = procedure;
+TThreadMethod         = procedure of object;
+TThreadProcedureIndex = procedure(index: Integer);
+TThreadMethodIndex    = procedure(index: Integer) of object;
+```
+
+---
+
+## WaitForAll
+
+Blocks until every queued task has finished executing.
+
+```pascal
+Pool.WaitForAll;
+```
+
+Always call before freeing the pool or any objects whose methods were queued.
+
+---
+
+## Error Handling
+
+Two distinct error paths exist — handle both:
+
+### 1. Queue-full errors (raised by `Queue`)
+
+`EQueueFullException` is raised synchronously on the calling thread when the
+queue stays full after all retry attempts. Catch it **around each `Queue` call**,
+not around `WaitForAll`.
+
+```pascal
+try
+  Pool.Queue(@MyProcedure);
+except
+  on E: EQueueFullException do
+  begin
+    // Queue is saturated. Options:
+    // - wait and retry: Pool.WaitForAll; Pool.Queue(@MyProcedure);
+    // - log and skip
+    WriteLn('Queue full: ', E.Message);
+  end;
+end;
+```
+
+The exception message format is:
+
+```text
+Queue is full after N attempts (Capacity: M)
+```
+
+Always catch by **type** (`EQueueFullException`), not by message string.
+
+### 2. Worker execution errors (read from `LastError`)
+
+Exceptions that occur *inside* a task are caught by the worker thread and stored
+in `LastError`. Check after `WaitForAll`.
+
+```pascal
+Pool.WaitForAll;
+
+if Pool.LastError <> '' then
+begin
+  // LastError holds the raw message of the most recent worker exception.
+  // Earlier failures are overwritten — only the last one is available.
+  WriteLn('Task error: ', Pool.LastError);
+  Pool.ClearLastError;  // reset before reuse
+end;
+```
+
+### Full pattern
+
 ```pascal
 var
   Pool: TProducerConsumerThreadPool;
@@ -47,166 +133,173 @@ begin
   try
     try
       Pool.Queue(@RiskyOperation);
-      Pool.WaitForAll;
     except
       on E: EQueueFullException do
-      begin
-        // Handle queue full condition
-        WriteLn('Queue is full: ', E.Message);
-      end;
+        WriteLn('Queue full: ', E.Message);
     end;
-    
-    // Check for execution errors after completion
+
+    Pool.WaitForAll;
+
     if Pool.LastError <> '' then
-      WriteLn('Error occurred: ', Pool.LastError);
+      WriteLn('Task failed: ', Pool.LastError);
   finally
     Pool.Free;
   end;
 end;
 ```
 
-#### Synchronization
+---
+
+## Properties and Methods
+
 ```pascal
-// Wait for all queued tasks to complete
-Pool.WaitForAll;
+property ThreadCount: Integer;        // read-only; number of worker threads
+property LastError: string;           // read-only; last worker exception message
+property WorkQueue: TThreadSafeQueue; // access to queue for monitoring/config
+
+procedure WaitForAll;
+procedure ClearLastError;
 ```
 
-### 📋 API Reference
+---
 
-#### Constructor
-```pascal
-constructor Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
-```
-Creates a new thread pool instance.
-- `AThreadCount`: Number of worker threads. If 0, uses CPU count
-- `AQueueSize`: Size of work queue. Defaults to 1024 items
+## Backpressure Configuration
 
-#### Queue Methods
-```pascal
-procedure Queue(AProcedure: TThreadProcedure);
-procedure Queue(AMethod: TThreadMethod);
-procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
-procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
-```
-All Queue methods:
-- Are thread-safe
-- Support backpressure handling
-- Raise EQueueFullException if queue is full after retries
-- Support different task types
+When the queue load factor exceeds a threshold, `Queue` introduces a delay before
+each retry attempt. This slows the producer instead of failing immediately.
 
-#### Control Methods
-```pascal
-procedure WaitForAll;    // Wait for completion
-procedure ClearLastError;  // Clear error state
-```
-
-#### Properties
-```pascal
-property ThreadCount: Integer;  // Number of worker threads
-property LastError: string;     // Last error message
-```
-
-#### Backpressure Configuration
 ```pascal
 type
   TBackpressureConfig = record
-    LowLoadThreshold: Double;    // Default: 0.5 (50%)
-    MediumLoadThreshold: Double; // Default: 0.7 (70%)
-    HighLoadThreshold: Double;   // Default: 0.9 (90%)
-    LowLoadDelay: Integer;       // Default: 10ms
-    MediumLoadDelay: Integer;    // Default: 50ms
-    HighLoadDelay: Integer;      // Default: 100ms
-    MaxAttempts: Integer;        // Default: 5 attempts
+    LowLoadThreshold:    Double;   // Default: 0.5  — delay starts at 50% capacity
+    MediumLoadThreshold: Double;   // Default: 0.7  — medium delay at 70%
+    HighLoadThreshold:   Double;   // Default: 0.9  — max delay at 90%
+    LowLoadDelay:        Integer;  // Default: 10 ms
+    MediumLoadDelay:     Integer;  // Default: 50 ms
+    HighLoadDelay:       Integer;  // Default: 100 ms
+    MaxAttempts:         Integer;  // Default: 5 — raises EQueueFullException after this
   end;
 ```
 
-### 🚨 Important Notes
-
-1. **Thread Safety**
-   - All operations are thread-safe
-   - Queue has fixed capacity (1024 items, configurable)
-   - Built-in retry mechanism (5 attempts, configurable)
-   - Error handling is thread-safe
-
-2. **Debug Logging**
-   - Enabled by default (DEBUG_LOG = True)
-   - Includes thread IDs and timestamps
-   - Logs queue operations and errors
-   - Helps in troubleshooting
-
-3. **Object Lifetime**
-   - Keep objects alive until their methods complete
-   - Wait for tasks before freeing objects
-   - Use try-finally blocks for cleanup
-
-4. **Best Practices**
-   - Monitor queue capacity
-   - Handle EQueueFullException
-   - Clear errors before reuse
-   - Always wait for completion
-
-### ⚠️ Common Pitfalls
+Read and write the config through `WorkQueue.BackpressureConfig`:
 
 ```pascal
-// DON'T DO THIS - Queue might be full
-try
-  for i := 1 to 2000 do  // Too many items!
-    Pool.Queue(@MyProc);
-except
-  // Queue full exception
-end;
-
-// DO THIS INSTEAD
-for i := 1 to 2000 do
+var
+  Config: TBackpressureConfig;
 begin
-  try
-    Pool.Queue(@MyProc);
-  except
-    on E: Exception do
-      if E.Message = 'Queue is full' then
-      begin
-        Pool.WaitForAll;  // Wait for queue to clear
-        Pool.Queue(@MyProc);  // Try again
-      end;
-  end;
-end;
-
-// DON'T DO THIS - Object freed too early
-MyObject := TMyClass.Create;
-Pool.Queue(@MyObject.MyMethod);
-MyObject.Free;  // Wrong!
-
-// DO THIS INSTEAD
-MyObject := TMyClass.Create;
-try
-  Pool.Queue(@MyObject.MyMethod);
-  Pool.WaitForAll;  // Wait for completion
-finally
-  MyObject.Free;  // Safe now
+  Config := Pool.WorkQueue.BackpressureConfig;
+  Config.MaxAttempts   := 3;
+  Config.HighLoadDelay := 200;
+  Pool.WorkQueue.BackpressureConfig := Config;
 end;
 ```
 
-### 🔧 Advanced Usage
+---
 
-#### Queue Management
+## Debug Logging
+
+The constant `DEBUG_LOG` at the top of the unit controls verbose output:
+
+```pascal
+const
+  DEBUG_LOG = True;  // set to False to silence all debug output
+```
+
+When enabled, each queue operation and worker event is logged to stdout with a
+timestamp and thread ID. Disable for production use.
+
+---
+
+## Thread Count Rules
+
+| Condition | Result |
+| --- | --- |
+| `AThreadCount <= 0` | Uses `TThread.ProcessorCount` |
+| `AThreadCount < 4` | Raised to 4 (minimum enforced) |
+| `AThreadCount > 2 × ProcessorCount` | Clamped to `2 × ProcessorCount` |
+
+Thread count is fixed after construction.
+
+---
+
+## Common Pitfalls
+
+### Catching EQueueFullException by message string
+
+```pascal
+// WRONG — the message includes dynamic content and will never match literally
+on E: Exception do
+  if E.Message = 'Queue is full' then ...
+
+// CORRECT — catch by exception type
+on E: EQueueFullException do ...
+```
+
+### Freeing an object before WaitForAll
+
+```pascal
+// WRONG — worker thread may still be calling MyObject.MyMethod
+Pool.Queue(@MyObject.MyMethod);
+MyObject.Free;
+
+// CORRECT
+try
+  Pool.Queue(@MyObject.MyMethod);
+  Pool.WaitForAll;
+finally
+  MyObject.Free;
+end;
+```
+
+### Placing WaitForAll inside the EQueueFullException handler
+
+```pascal
+// WRONG — if Queue raises, WaitForAll is never reached, pool is freed while busy
+try
+  Pool.Queue(@MyProc);
+  Pool.WaitForAll;   // skipped on exception
+except
+  on E: EQueueFullException do ...
+end;
+Pool.Free;
+
+// CORRECT — separate concerns
+try
+  Pool.Queue(@MyProc);
+except
+  on E: EQueueFullException do
+    WriteLn('Queue full: ', E.Message);
+end;
+Pool.WaitForAll;  // always reached
+Pool.Free;
+```
+
+---
+
+## Advanced: Queue Management
+
+Queue multiple items and handle overflow per-item:
+
 ```pascal
 var
   Pool: TProducerConsumerThreadPool;
+  i: Integer;
 begin
-  // Create pool with specific thread count
-  Pool := TProducerConsumerThreadPool.Create(4);
+  Pool := TProducerConsumerThreadPool.Create(4, 512);
   try
-    // Queue until full
-    while True do
-    try
-      Pool.Queue(@MyProc);
-    except
-      on E: Exception do
-        if E.Message = 'Queue is full' then
-          Break;
+    for i := 1 to 2000 do
+    begin
+      try
+        Pool.Queue(@MyProc);
+      except
+        on E: EQueueFullException do
+        begin
+          Pool.WaitForAll;   // let the queue drain
+          Pool.Queue(@MyProc);  // retry
+        end;
+      end;
     end;
-    
-    // Process queue
+
     Pool.WaitForAll;
   finally
     Pool.Free;
@@ -214,82 +307,12 @@ begin
 end;
 ```
 
-### 📝 Type Definitions
+---
 
-```pascal
-type
-  TThreadProcedure = procedure;
-  TThreadMethod = procedure of object;
-  TThreadProcedureIndex = procedure(Index: Integer);
-  TThreadMethodIndex = procedure(Index: Integer) of object;
-```
+## Limitations
 
-### 🔍 Thread Management
-
-1. **Thread Count Rules**
-   - Default: Uses `ProcessorCount` when thread count ≤ 0
-   - Minimum: 4 threads enforced
-   - Maximum: 2× `ProcessorCount`
-   - Thread creation: All threads created at startup
-
-2. **Performance Tuning**
-   - Worker threads sleep 100ms when idle
-   - Fixed queue size affects memory usage
-   - Consider queue capacity when designing tasks
-   - Balance thread count with system resources
-
-### 🛡️ Thread Safety Guarantees
-
-1. **Queue Operations**
-   - Thread-safe work item queueing
-   - Protected work item count
-   - Safe error state management
-   - Synchronized completion tracking
-
-2. **Resource Management**
-   - Safe worker thread termination
-   - Protected queue access
-   - Thread-safe error handling
-   - Proper cleanup in destructor
-
-### ⚡ Performance Tips
-
-1. **Queue Management**
-   - Monitor queue capacity (1024 items, configurable)
-   - Handle queue full conditions
-   - Consider batching small tasks
-   - Watch for queue saturation
-
-2. **Task Design**
-   - Keep tasks reasonably sized
-   - Avoid very short tasks
-   - Handle long-running tasks appropriately
-   - Consider task dependencies
-
-### 🚫 Limitations
-
-1. **Queue Constraints**
-   - Fixed capacity (1024 items by default, configurable)
-   - No dynamic resizing
-   - Blocking on queue full
-   - No priority queueing
-
-2. **Error Handling**
-   - Single error storage
-   - Last error overwrites previous
-   - No error event mechanism
-   - No error queueing
-
-### 💡 Usage Recommendations
-
-1. **Optimal Use Cases**
-   - Batch processing tasks
-   - Parallel computations
-   - I/O operations
-   - CPU-intensive work
-
-2. **Less Suitable For**
-   - Very short tasks (overhead)
-   - Real-time operations
-   - UI thread work
-   - Critical timing requirements
+- Fixed queue capacity — no dynamic resizing
+- Only the most recent worker exception is stored in `LastError`
+- No task priority or cancellation support
+- No dynamic thread scaling after construction
+- Not suitable for real-time or UI-thread work

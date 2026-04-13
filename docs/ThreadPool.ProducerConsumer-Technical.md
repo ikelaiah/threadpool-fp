@@ -1,62 +1,19 @@
-# ThreadPool.ProducerConsumer Technical
+# ThreadPool.ProducerConsumer — Technical Documentation
 
 ## Overview
-The `ThreadPool.ProducerConsumer` unit implements a thread pool using the producer-consumer pattern with advanced backpressure handling. It provides a thread-safe queue for work items and manages a pool of worker threads that process these items.
 
-### Key Features
+`ThreadPool.ProducerConsumer` implements a thread pool using the
+producer-consumer pattern. Tasks are placed into a fixed-size circular buffer by
+the caller (producer) and removed for execution by worker threads (consumers).
+When the buffer fills faster than workers can drain it, adaptive backpressure
+slows the producer before raising `EQueueFullException`.
 
-1. **Backpressure Management**
-   - Configurable load thresholds and delays
-   - Default thresholds:
-     - Low Load: 50% (0.5)
-     - Medium Load: 70% (0.7)
-     - High Load: 90% (0.9)
-   - Default delays:
-     - Low Load: 10ms
-     - Medium Load: 50ms
-     - High Load: 100ms
-   - Maximum retry attempts: 5
-
-2. **Debug Logging**
-   - Enabled by default (DEBUG_LOG = True)
-   - Includes timestamps and thread IDs
-   - Logs queue operations and thread activities
-   - Helps in monitoring and debugging
-
-3. **Enhanced Error Handling**
-   - New `EQueueFullException` for queue saturation
-   - Detailed error messages with queue state
-   - Thread-safe error reporting
-   - Proper exception propagation
-
-### Queue Management Strategy
-
-The implementation uses a fixed-size circular buffer with backpressure:
-- **Bounded Queue:** Fixed capacity of 1024 items prevents memory exhaustion (configurable)
-- **Load Monitoring:** Continuous tracking of queue load factor
-- **Adaptive Delays:** Response times adjust based on queue load
-- **Fail-Fast Policy:** Throws EQueueFullException after max attempts
-
-### Producer-Consumer Thread Pool Details
-
-The **Producer-Consumer Thread Pool** utilizes a fixed-size circular buffer combined with backpressure and retry mechanisms:
-
-- **Fixed-Size Circular Buffer**
-  - **Capacity:** The task queue is 1024 items (by default, configurable) to ensure predictable memory usage.
-  - **Circular Nature:** Efficiently reuses buffer space without the need for dynamic resizing.
-
-- **Built-in Retry Mechanism**
-  - **Automatic Retries:** When queue is full, the system will automatically retry up to 5 times (configurable)
-  - **Backpressure Delays:** Each retry attempt includes adaptive delays based on queue load
-  - **Exception Handling:** Throws EQueueFullException after maximum attempts are exhausted
-
-> [!WARNING]
-> 
-> While the system includes automatic retry mechanisms, it's recommended that users implement their own error handling strategies for scenarios where the queue remains full after all retry attempts.
+---
 
 ## Architecture
 
 ### Class Structure
+
 ```mermaid
 classDiagram
     class TThreadPoolBase {
@@ -70,7 +27,7 @@ classDiagram
         +GetLastError()
         +ClearLastError()
     }
-    
+
     class TProducerConsumerThreadPool {
         -FThreads: TThreadList
         -FWorkQueue: TThreadSafeQueue
@@ -79,16 +36,17 @@ classDiagram
         -FErrorLock: TCriticalSection
         -FWorkItemLock: TCriticalSection
         -FLocalThreadCount: Integer
-        +Create(threadCount: Integer)
+        +Create(threadCount, queueSize: Integer)
         +Queue(procedure)
         +Queue(method)
         +Queue(procedureIndex, index)
         +Queue(methodIndex, index)
         +WaitForAll()
-        +GetLastError()
-        +ClearLastError()
+        +WorkQueue: TThreadSafeQueue
+        +ThreadCount: Integer
+        +LastError: string
     }
-    
+
     class TThreadSafeQueue {
         -FItems: array of IWorkItem
         -FHead: Integer
@@ -96,13 +54,16 @@ classDiagram
         -FCount: Integer
         -FCapacity: Integer
         -FLock: TCriticalSection
+        -FBackpressureConfig: TBackpressureConfig
         +Create(capacity: Integer)
         +TryEnqueue(item: IWorkItem): Boolean
         +TryDequeue(out item: IWorkItem): Boolean
         +GetCount(): Integer
+        +LoadFactor: Double
+        +BackpressureConfig: TBackpressureConfig
         +Clear()
     }
-    
+
     class TProducerConsumerWorkerThread {
         -FThreadPool: TObject
         +Create(threadPool: TObject)
@@ -115,31 +76,35 @@ classDiagram
 ```
 
 ### Component Interaction
+
 ```mermaid
 sequenceDiagram
     participant App as Application
-    participant Pool as ThreadPool
-    participant Queue as WorkQueue
-    participant Worker as WorkerThread
-    
+    participant Pool as TProducerConsumerThreadPool
+    participant Queue as TThreadSafeQueue
+    participant Worker as TProducerConsumerWorkerThread
+
     App->>Pool: Queue(Task)
-    Pool->>Queue: TryEnqueue
-    alt Queue Full After Max Attempts
-        Queue-->>App: Raise EQueueFullException
-    else Queue Space Available
-        Queue-->>Pool: true
-        Pool-->>App: Return
+    Pool->>Pool: Increment FWorkItemCount
+    Pool->>Queue: TryEnqueue(WorkItem)
+    alt Queue full after MaxAttempts
+        Queue-->>App: raise EQueueFullException
+        Pool->>Pool: Decrement FWorkItemCount
+    else Space available
+        Queue-->>Pool: True
+        Pool-->>App: return
         Worker->>Queue: TryDequeue
-        Queue-->>Worker: Work Item
-        Worker->>Worker: Execute Task
-        Worker->>Pool: Update Count
-        opt Last Task
-            Pool->>App: Signal Completion
+        Queue-->>Worker: WorkItem
+        Worker->>Worker: WorkItem.Execute
+        Worker->>Pool: Decrement FWorkItemCount
+        opt FWorkItemCount = 0
+            Pool->>App: FCompletionEvent.SetEvent
         end
     end
 ```
 
 ### Thread Pool States
+
 ```mermaid
 stateDiagram-v2
     [*] --> Created: Create()
@@ -155,257 +120,173 @@ stateDiagram-v2
 ```
 
 ### Work Item Flow
+
 ```mermaid
 flowchart LR
-    A[Task] -->|Create| B[Work Item]
-    B -->|Queue| C[Thread Pool]
-    C -->|Enqueue| D[Work Queue]
-    D -->|Dequeue| E[Worker Thread]
-    E -->|Execute| F[Complete]
-    E -->|Error| G[Error State]
-    G -->|Report| C
+    A[Task] -->|Create| B[TProducerConsumerWorkItem]
+    B -->|TryEnqueue| C[TThreadSafeQueue]
+    C -->|TryDequeue| D[TProducerConsumerWorkerThread]
+    D -->|Execute| E[Complete]
+    D -->|Exception| F[SetLastError]
+    F --> G[Pool.LastError]
 ```
+
+---
 
 ## Key Components
 
 ### TProducerConsumerThreadPool
-- Main thread pool implementation
-- Manages worker threads and work queue
-- Handles task queueing and completion tracking
-- Thread count defaults to CPU count if not specified
-- Thread-safe operation using critical sections
+
+The main class. It:
+
+- Creates and starts all worker threads at construction time
+- Wraps each `Queue` call into a `TProducerConsumerWorkItem` and passes it to `TThreadSafeQueue.TryEnqueue`
+- Tracks the number of in-flight work items (`FWorkItemCount`) under `FWorkItemLock`
+- Signals `FCompletionEvent` when `FWorkItemCount` reaches zero (satisfying `WaitForAll`)
+- Stores the most recent worker exception message in `FLastError` under `FErrorLock`
 
 ### TThreadSafeQueue
-- Thread-safe circular queue implementation
-- Fixed capacity (1024 items by default, configurable)
-- Provides TryEnqueue and TryDequeue operations
-- Handles queue full/empty conditions
-- Uses critical section for thread safety
-- Implements backpressure mechanism
-- Monitors queue load factor
+
+A thread-safe circular buffer. Key properties:
+
+- **Capacity** is fixed at construction — no dynamic resizing
+- **Head/tail pointers** wrap around modulo capacity: O(1) enqueue and dequeue
+- `LoadFactor` = `FCount / FCapacity` — used by backpressure logic
+- All operations are protected by a single `TCriticalSection` (`FLock`)
 
 ### TProducerConsumerWorkerThread
-- Worker thread implementation
-- Continuously processes items from queue
-- Handles work item execution and error reporting
-- Sleeps when queue is empty (100ms intervals)
-- Created suspended, started explicitly
 
-## Thread Safety
-- Uses critical sections for queue operations (FLock)
-- Uses critical sections for work item count (FWorkItemLock)
-- Uses critical sections for error handling (FErrorLock)
-- Uses event object for completion signaling (FCompletionEvent)
-- Thread-safe backpressure application
+Each worker:
 
-## Error Handling
-- Queue full conditions trigger retry mechanism
-- Maximum retry attempts (default: 5)
-- EQueueFullException raised after max retries
-- Work item execution errors are captured and stored
-- Thread termination is handled gracefully
-- Last error accessible via LastError property
+- Loops calling `TryDequeue`; executes the work item if one is available
+- Calls `Sleep(100)` when the queue is empty to avoid busy-waiting
+- On exception inside `Execute`, stores the message in `Pool.FLastError` and
+  decrements the work item counter normally (pool keeps running)
+- Exits the loop when `Terminated` is set during pool destruction
 
-## Performance Considerations
-- Fixed queue size (1024 items by default, configurable)
-- Adaptive delays based on queue load
-- Worker threads sleep 100ms when queue empty
-- Thread count optimized for CPU count by default
-- Thread-safe operations with minimal locking
-- Backpressure helps prevent system overload
+---
 
-## Thread Management Details
+## Backpressure
 
-### Thread Creation and Startup
-- Threads created in suspended state
-- Started explicitly after creation
-- Thread count rules:
-  - Minimum: 4 threads
-  - Maximum: 2× `ProcessorCount`
-  - Default: `ProcessorCount` when not specified
-- No dynamic thread creation/destruction
+Before each enqueue attempt, `ApplyBackpressure` reads `LoadFactor` and sleeps
+for a configurable duration:
 
-### Thread Termination
-- Graceful shutdown via Terminate flag
-- Waits for threads to finish current task
-- Proper cleanup of thread resources
-- Thread-safe removal from thread list
+| Load factor | Default delay |
+| --- | --- |
+| ≥ 50% (`LowLoadThreshold`) | 10 ms |
+| ≥ 70% (`MediumLoadThreshold`) | 50 ms |
+| ≥ 90% (`HighLoadThreshold`) | 100 ms |
 
-### Thread State Management
+After `MaxAttempts` (default 5) failures, `EQueueFullException` is raised.
+
+Configure via `Pool.WorkQueue.BackpressureConfig`:
+
 ```pascal
-procedure TProducerConsumerWorkerThread.Execute;
+var
+  Config: TBackpressureConfig;
 begin
-  while not Terminated do
-  begin
-    if TryGetWorkItem then
-      ProcessWorkItem
-    else
-      Sleep(100);  // Prevent busy waiting
-  end;
+  Config := Pool.WorkQueue.BackpressureConfig;
+  Config.MaxAttempts   := 3;
+  Config.HighLoadDelay := 200;
+  Pool.WorkQueue.BackpressureConfig := Config;
 end;
 ```
 
-## Exception Handling Implementation
+---
 
-### Worker Thread Exceptions
-```pascal
-try
-  WorkItem.Execute;
-except
-  on E: Exception do
-  begin
-    Pool.FErrorLock.Enter;
-    try
-      Pool.SetLastError(E.Message);
-    finally
-      Pool.FErrorLock.Leave;
-    end;
-  end;
-end;
-```
+## Implementation Details
 
-### Queue Operation Exceptions
-- Queue full detection via TryEnqueue
-- Exception propagation to caller
-- Work item count adjustment
-- Completion event management
-
-### Error State Management
-- Thread-safe error storage
-- Last error overwrite policy
-- Error clearing mechanism
-- Error retrieval synchronization
-
-## Performance Details
-
-### Queue Implementation Strategy
-
-#### Current Approach
-The implementation uses a fixed-size circular buffer with backpressure:
-- **Bounded Queue:** Fixed capacity of 1024 items (by default, configurable) prevents memory exhaustion
-- **Thread Safety:** All operations protected by FLock critical section
-- **Backpressure Policy:** Adaptive delays based on queue load factor
-
+### TryEnqueue — full implementation
 
 ```pascal
 function TThreadSafeQueue.TryEnqueue(AItem: IWorkItem): boolean;
+var
+  Attempts: Integer;
 begin
-  Result := False;
-  FLock.Enter;
-  try
-    if FCount < FCapacity then
-    begin
-      FItems[FTail] := AItem;
-      FTail := (FTail + 1) mod FCapacity;
-      Inc(FCount);
-      Result := True;
+  if AItem = nil then Exit(False);
+
+  Attempts := 0;
+  while Attempts < FBackpressureConfig.MaxAttempts do
+  begin
+    ApplyBackpressure;  // adaptive delay based on current LoadFactor
+
+    FLock.Enter;
+    try
+      if FCount < FCapacity then
+      begin
+        FItems[FTail] := AItem;
+        FTail := (FTail + 1) mod FCapacity;
+        Inc(FCount);
+        FLastEnqueueTime := Now;
+        Exit(True);  // success
+      end;
+    finally
+      FLock.Leave;
     end;
-  finally
-    FLock.Leave;
+
+    Inc(Attempts);
+    if Attempts < FBackpressureConfig.MaxAttempts then
+      Sleep(10);
   end;
+
+  // All attempts exhausted
+  raise EQueueFullException.Create(Format(
+    'Queue is full after %d attempts (Capacity: %d)',
+    [FBackpressureConfig.MaxAttempts, FCapacity]));
 end;
 ```
 
+### Worker Execute loop
 
-### Benefits of Current Strategy
-1. **Memory Safety**
-   - Predictable memory usage
-   - No risk of unbounded growth
-   - Protected against memory exhaustion
-
-2. **Performance**
-   - O(1) enqueue/dequeue operations
-   - Minimal lock contention
-   - No memory allocation during operation
-   - Quick failure detection
-
-3. **Reliability**
-   - Clear failure semantics
-   - Thread-safe operations
-   - No hidden blocking
-   - Predictable behavior under load
-
-### Critical Section Usage
 ```pascal
-type
-  TThreadSafeQueue = class
-  private
-    FLock: TCriticalSection;
-    // ...
-  end;
-
-procedure TThreadSafeQueue.TryEnqueue;
+procedure TProducerConsumerWorkerThread.Execute;
+var
+  Pool: TProducerConsumerThreadPool;
+  WorkItem: IWorkItem;
 begin
-  FLock.Enter;
-  try
-    // Minimal critical section scope
-  finally
-    FLock.Leave;
+  Pool := TProducerConsumerThreadPool(FThreadPool);
+
+  while not Terminated do
+  begin
+    if Pool.FWorkQueue.TryDequeue(WorkItem) then
+    begin
+      try
+        WorkItem.Execute;
+      except
+        on E: Exception do
+        begin
+          Pool.FErrorLock.Enter;
+          try
+            Pool.SetLastError(E.Message);
+          finally
+            Pool.FErrorLock.Leave;
+          end;
+        end;
+      end;
+
+      // Decrement counter; signal WaitForAll when last item finishes
+      Pool.FWorkItemLock.Enter;
+      try
+        Dec(Pool.FWorkItemCount);
+        if Pool.FWorkItemCount = 0 then
+          Pool.FCompletionEvent.SetEvent;
+      finally
+        Pool.FWorkItemLock.Leave;
+      end;
+    end
+    else
+      Sleep(100);  // queue empty — avoid busy-waiting
   end;
 end;
 ```
 
-### Memory Management
-- Pre-allocated queue buffer
-- No dynamic resizing
-- Work item reference counting
-- Proper interface cleanup
+### Destructor / cleanup sequence
 
-### Thread Synchronization
-- Event-based completion signaling
-- Sleep-based idle management
-- Multiple critical sections for different concerns
-- Minimal lock scope
-
-## Implementation Limitations
-
-### Queue Constraints
-1. **Fixed Capacity**
-   - 1024 items maximum (by default, configurable)
-   - No dynamic growth
-   - Blocking on full
-   - No priority support
-
-2. **Performance Impact**
-   - Memory pre-allocation
-   - Potential queue saturation
-   - Sleep delay overhead
-   - Lock contention possible
-
-### Thread Management Limitations
-1. **Static Threading**
-   - Fixed thread count
-   - No dynamic scaling
-   - No thread pool resizing
-   - No thread priority control
-
-2. **Resource Usage**
-   - Memory for queue buffer
-   - Thread stack allocation
-   - Critical section overhead
-   - Event object overhead
-
-### Error Handling Limitations
-1. **Error Storage**
-   - Single error message
-   - Last error overwrites
-   - No error history
-   - No error categorization
-
-2. **Exception Management**
-   - Limited error propagation
-   - No error event system
-   - No error recovery mechanism
-   - No error filtering
-
-## Resource Management
-
-### Cleanup Sequence
 ```pascal
 destructor TProducerConsumerThreadPool.Destroy;
 begin
-  ClearThreads;        // Stop and free threads
-  FWorkQueue.Free;     // Free queue and items
+  ClearThreads;          // sets Terminated, waits for all threads, frees them
+  FWorkQueue.Free;
   FCompletionEvent.Free;
   FErrorLock.Free;
   FWorkItemLock.Free;
@@ -414,15 +295,35 @@ begin
 end;
 ```
 
-### Resource Lifetime
-- Thread termination before cleanup
-- Work item completion handling
-- Critical section disposal
-- Event object cleanup
+---
 
-### Memory Considerations
-- Queue buffer allocation
-- Thread stack allocation
-- Work item interface references
-- Synchronization object overhead
+## Thread Safety Summary
 
+| Object | Protects |
+| --- | --- |
+| `FLock` (in TThreadSafeQueue) | Queue head/tail/count during enqueue and dequeue |
+| `FWorkItemLock` | `FWorkItemCount` and `FCompletionEvent` |
+| `FErrorLock` | `FLastError` writes from worker threads |
+| `FCompletionEvent` | Signals `WaitForAll` when all items are done |
+
+---
+
+## Performance Considerations
+
+- **O(1)** enqueue and dequeue — circular buffer, no shifting
+- Backpressure delays add latency on the producer side when the queue is busy;
+  tune `MaxAttempts` and delay values for your workload
+- Workers sleep **100 ms** when the queue is empty — acceptable for batch
+  workloads, but not suitable for latency-sensitive tasks
+- `DEBUG_LOG = True` by default; set it to `False` in production to eliminate
+  the overhead of timestamped console output
+
+---
+
+## Limitations
+
+- Fixed queue capacity — no dynamic resizing
+- Only the most recent worker exception is stored (`LastError`)
+- No task priority, ordering guarantees, or cancellation
+- Thread count is fixed after construction — no dynamic scaling
+- Debug logging writes to stdout; there is no log-level or handler API

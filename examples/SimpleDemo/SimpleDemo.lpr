@@ -45,28 +45,31 @@ begin
   try
     WriteLn('Demo of ThreadPool functionality:');
     WriteLn('--------------------------------');
-    
+
     // Queue different types of work
     WriteLn('1. Queueing simple procedure');
     GlobalThreadPool.Queue(@SimpleProc);
-    
+
+    // WARNING: MyObject must NOT be freed before WaitForAll returns.
+    // Worker threads call MyObject's methods asynchronously — freeing early
+    // causes an access violation. The try/finally below ensures correct order.
     WriteLn('2. Queueing method of a class');
     GlobalThreadPool.Queue(@MyObject.DoSomething);
-    
+
     WriteLn('3. Queueing indexed procedure');
     GlobalThreadPool.Queue(@IndexProc, 1);
-    
+
     WriteLn('4. Queueing method with index of a class');
     GlobalThreadPool.Queue(@MyObject.DoSomethingWithIndex, 2);
 
     WriteLn('--------------------------------');
     WriteLn('Waiting for all tasks to complete...');
-    GlobalThreadPool.WaitForAll;
+    GlobalThreadPool.WaitForAll;  // MUST be called before MyObject.Free (see finally)
     WriteLn('--------------------------------');
     WriteLn('All tasks completed successfully!');
-    
+
   finally
-    MyObject.Free;
+    MyObject.Free;  // Safe: WaitForAll has already returned above
   end;
 
   // Pause console

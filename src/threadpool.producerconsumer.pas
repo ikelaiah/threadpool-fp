@@ -27,6 +27,7 @@ type
   end;
 
 
+  {$REGION 'Internal: Worker Thread'}
   { Worker thread implementation for producer-consumer pattern }
   TProducerConsumerWorkerThread = class(TThread)
   private
@@ -37,6 +38,9 @@ type
     constructor Create(AThreadPool: TObject);
   end;
 
+  {$ENDREGION}
+
+  {$REGION 'Internal: Thread-Safe Queue'}
   { Thread-safe circular queue for work items }
   TThreadSafeQueue = class(TObject)
   private
@@ -62,6 +66,9 @@ type
     property BackpressureConfig: TBackpressureConfig read FBackpressureConfig write FBackpressureConfig;
   end;
 
+  {$ENDREGION}
+
+  {$REGION 'Internal: Work Item'}
   { Work item implementation for producer-consumer pattern }
   TProducerConsumerWorkItem = class(TInterfacedObject, IWorkItem)
   private
@@ -79,6 +86,9 @@ type
     function GetItemType: integer;
   end;
 
+  {$ENDREGION}
+
+  {$REGION 'Public API: TProducerConsumerThreadPool'}
   { Producer-consumer thread pool implementation }
   TProducerConsumerThreadPool = class(TThreadPoolBase)
   private
@@ -109,13 +119,21 @@ type
     property LastError: string read GetLastError;
   end;
 
+  {$ENDREGION}
+
 implementation
+
+{$REGION 'DebugLog'}
 
 procedure DebugLog(const Msg: string);
 begin
   if DEBUG_LOG then
     WriteLn('[', FormatDateTime('hh:nn:ss.zzz', Now), '] ', GetThreadID, ': ', Msg);
 end;
+
+{$ENDREGION}
+
+{$REGION 'TProducerConsumerThreadPool — Public API'}
 
 constructor TProducerConsumerThreadPool.Create(AThreadCount: Integer = 0; AQueueSize: Integer = 1024);
 var
@@ -343,6 +361,10 @@ begin
   Result := inherited GetLastError;
 end;
 
+{$ENDREGION}
+
+{$REGION 'TProducerConsumerWorkItem'}
+
 { TProducerConsumerWorkItem }
 
 constructor TProducerConsumerWorkItem.Create(AThreadPool: TObject);
@@ -367,6 +389,10 @@ function TProducerConsumerWorkItem.GetItemType: integer;
 begin
   Result := Ord(FItemType);
 end;
+
+{$ENDREGION}
+
+{$REGION 'TThreadSafeQueue'}
 
 { TThreadSafeQueue }
 
@@ -469,6 +495,10 @@ begin
   end;
 end;
 
+{$ENDREGION}
+
+{$REGION 'TProducerConsumerWorkerThread'}
+
 { TProducerConsumerWorkerThread }
 
 constructor TProducerConsumerWorkerThread.Create(AThreadPool: TObject);
@@ -530,6 +560,8 @@ begin
   end;
   DebugLog('Worker thread terminating');
 end;
+
+{$ENDREGION}
 
 function TThreadSafeQueue.GetLoadFactor: Double;
 begin

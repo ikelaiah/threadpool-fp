@@ -8,6 +8,7 @@ uses
   Classes, SysUtils, SyncObjs, ThreadPool.Types;
 
 type
+  {$REGION 'Internal: Work Item'}
   { Simple work item implementation }
   TSimpleWorkItem = class(TInterfacedObject, IWorkItem)
   private
@@ -26,8 +27,11 @@ type
     function GetItemType: Integer;
   end;
 
+  {$ENDREGION}
+
+  {$REGION 'Internal: Worker Thread'}
   { Simple worker thread implementation }
-  TSimpleWorkerThread = class(TThread, IWorkerThread) 
+  TSimpleWorkerThread = class(TThread, IWorkerThread)
   private
     FRefCount: Integer;
     FThreadPool: TObject;
@@ -46,6 +50,9 @@ type
     function _Release: Integer; stdcall;
   end;
 
+  {$ENDREGION}
+
+  {$REGION 'Public API: TSimpleThreadPool'}
   { Simple thread pool implementation }
   TSimpleThreadPool = class(TThreadPoolBase)
   private
@@ -74,13 +81,19 @@ type
     property LastError: string read GetLastError;
   end;
 
+  {$ENDREGION}
+
 var
-  { Global thread pool instance
-    Automatically created at unit initialization
-    Freed at unit finalization }
+  {$REGION 'Public API: Global instance'}
+  { Global thread pool instance.
+    Created automatically at unit initialization; freed at finalization.
+    Do NOT call GlobalThreadPool.Free — the unit manages its lifetime. }
   GlobalThreadPool: TSimpleThreadPool;
+  {$ENDREGION}
 
 implementation
+
+{$REGION 'TSimpleWorkerThread'}
 
 { TSimpleWorkerThread }
 
@@ -186,6 +199,10 @@ begin
   end;
 end;
 
+{$ENDREGION}
+
+{$REGION 'TSimpleWorkItem'}
+
 { TSimpleWorkItem }
 
 constructor TSimpleWorkItem.Create(AThreadPool: TObject);
@@ -231,6 +248,10 @@ function TSimpleWorkItem.GetItemType: Integer;
 begin
   Result := Ord(FItemType);
 end;
+
+{$ENDREGION}
+
+{$REGION 'TSimpleThreadPool — Public API'}
 
 { TSimpleThreadPool }
 
@@ -437,6 +458,8 @@ function TSimpleThreadPool.GetLastError: string;
 begin
   Result := inherited GetLastError;
 end;
+
+{$ENDREGION}
 
 initialization
   GlobalThreadPool := TSimpleThreadPool.Create;  // Create global instance
