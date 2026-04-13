@@ -9,7 +9,7 @@
 ![No Dependencies](https://img.shields.io/badge/dependencies-none-10B981.svg)
 ![Tests](https://img.shields.io/badge/tests-35%20passed-10B981.svg)
 [![Documentation](https://img.shields.io/badge/Docs-Available-brightgreen.svg)](docs/)
-[![Status](https://img.shields.io/badge/Status-Experimental-F59E0B.svg)](README.md)
+[![Status](https://img.shields.io/badge/Status-Stable-10B981.svg)](README.md)
 
 A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify parallel processing for simple tasks! ⚡
 
@@ -18,9 +18,9 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
 > Parallel processing can improve performance for CPU-intensive tasks that can be executed independently. However, not all tasks benefit from parallelization. See [Thread Management](#-thread-management) for important considerations.
 
 > [!NOTE]
-> This library is an experimental project, as I was exploring the concept of thread pools and how to implement them in Free Pascal.
-> 
-> Hence, this library is **not suitable** for high-load applications. It is designed for simple parallel processing tasks that can be executed in parallel.
+> This library was originally written to explore the concept of thread pools in Free Pascal. It has since grown into a stable, tested implementation suitable for simple parallel processing tasks.
+>
+> It is **not designed** for high-load or production-scale applications. For those use cases, see the alternatives below.
 
 > [!TIP]
 > 
