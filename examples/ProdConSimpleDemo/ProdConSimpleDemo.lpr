@@ -54,6 +54,9 @@ begin
     WriteLn('1. Queueing simple procedure');
     Pool.Queue(@SimpleProc);
 
+    // WARNING: MyObject must NOT be freed before Pool.WaitForAll returns.
+    // Worker threads call MyObject's methods asynchronously — freeing early
+    // causes an access violation. The try/finally below ensures correct order.
     WriteLn('2. Queueing method of a class');
     Pool.Queue(@MyObject.DoSomething);
 
@@ -65,17 +68,17 @@ begin
 
     WriteLn('--------------------------------');
     WriteLn('Waiting for all tasks to complete...');
-    Pool.WaitForAll;
+    Pool.WaitForAll;  // MUST be called before freeing Pool or MyObject (see finally)
     WriteLn('--------------------------------');
     WriteLn('All tasks completed successfully!');
 
-    // Check for any errors
+    // Check for any errors — only the LAST exception is stored in LastError
     if Pool.LastError <> '' then
       WriteLn('Error occurred: ', Pool.LastError);
 
   finally
-    Pool.Free;
-    MyObject.Free;
+    Pool.Free;        // Safe: WaitForAll has already returned above
+    MyObject.Free;    // Safe: all method calls have completed
   end;
 
   // Pause console

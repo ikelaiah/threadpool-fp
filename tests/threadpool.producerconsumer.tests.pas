@@ -82,11 +82,9 @@ end;
 
 procedure TTestProducerConsumerThreadPool.IncrementCounter;
 begin
-  LogTest('IncrementCounter called');
   FSharedLock.Enter;
   try
     Inc(FSharedCounter);
-    LogTest('Counter incremented to ' + IntToStr(FSharedCounter));
   finally
     FSharedLock.Leave;
   end;
@@ -304,15 +302,18 @@ begin
     TestPool.WorkQueue.BackpressureConfig := Config;
     
     ExceptionRaised := False;
-    
-    // Fill the queue
+
+    // Fill the queue with long-running tasks so the worker cannot drain the
+    // queue between these enqueues and the third attempt below.
+    // SlowTask (250ms) is too short — the single worker may dequeue item 1
+    // before item 3 is attempted, defeating the "full queue" condition.
     LogTest('test08: Queueing first task');
-    TestPool.Queue(@SlowTask);
+    TestPool.Queue(@LongTask);
     LogTest('test08: Queueing second task');
-    TestPool.Queue(@SlowTask);
+    TestPool.Queue(@LongTask);
 
     try
-      TestPool.Queue(@SlowTask);
+      TestPool.Queue(@LongTask);
       LogTest('ERROR: Queue succeeded when it should have been full');
     except
       on E: EQueueFullException do
@@ -410,17 +411,21 @@ end;
 procedure TTestProducerConsumerThreadPool.Test12_LoadFactorCalculation;
 var
   LoadFactor: Double;
+  I: Integer;
 begin
   LogTest('Test12_LoadFactorCalculation starting...');
-  
+
   // Empty queue
   LoadFactor := FThreadPool.WorkQueue.LoadFactor;
   AssertEquals('Empty queue load factor', 0.0, LoadFactor);
-  
-  // Add some tasks
-  FThreadPool.Queue(@SleepTask);
-  FThreadPool.Queue(@SleepTask);
-  
+
+  // Queue more tasks than there are threads so the queue buffer always has
+  // items in it when LoadFactor is read immediately after. Two SleepTask items
+  // on a multi-thread pool drain before the assertion — the workers dequeue
+  // both in < 1 ms. Queuing 50 items guarantees at least some remain.
+  for I := 1 to 50 do
+    FThreadPool.Queue(@SleepTask);
+
   LoadFactor := FThreadPool.WorkQueue.LoadFactor;
   AssertTrue('Partial queue load factor', (LoadFactor > 0.0) and (LoadFactor < 1.0));
   

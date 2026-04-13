@@ -102,13 +102,14 @@ var
 begin
   TestPool := TProducerConsumerThreadPool.Create(THREAD_COUNT, QUEUE_SIZE);
   try
-    // Fill queue to capacity
-    TestPool.Queue(@SlowTask);
-    TestPool.Queue(@SlowTask);
-    
+    // Fill queue to capacity with long-running tasks so the worker cannot
+    // drain the queue before the third enqueue is attempted.
+    TestPool.Queue(@LongTask);
+    TestPool.Queue(@LongTask);
+
     // This should trigger the exception
     try
-      TestPool.Queue(@SlowTask);  // Queue is full, will raise exception
+      TestPool.Queue(@LongTask);  // Queue is full, will raise EQueueFullException
     except
       on E: EQueueFullException do
         ExceptionRaised := True;

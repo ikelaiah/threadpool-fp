@@ -1,5 +1,7 @@
 # 🚀 ThreadPool for Free Pascal
 
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
+
 A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify parallel processing for simple tasks! ⚡
 
 > [!IMPORTANT]
@@ -52,6 +54,7 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
   - [🚧 Planned/In Progress](#-plannedin-progress)
   - [👏 Acknowledgments](#-acknowledgments)
   - [📄 License](#-license)
+  - [📋 Changelog](CHANGELOG.md)
 
 ## ✨ Features
 
@@ -252,6 +255,16 @@ end.
 > - 📊 Queue capacity monitoring available
 
 
+### Which implementation should I use?
+
+```text
+Need a thread pool?
+├─ Tasks are fire-and-forget, count is predictable, low overhead wanted?
+│  └─ → Use ThreadPool.Simple (or the GlobalThreadPool singleton)
+└─ Producer can outpace consumers, or you need queue overflow control?
+   └─ → Use ThreadPool.ProducerConsumer
+```
+
 **Use Simple Thread Pool when:**
 - Direct task execution without queuing needed
 - Task count is predictable and moderate
@@ -266,8 +279,29 @@ end.
 - Need detailed execution monitoring
 - Want configurable retry mechanisms
 
+### Queue overload reference
+
+All four `Queue` overloads share the same pattern — pick the one that fits your task:
+
+| Overload | Signature | Use when | Example |
+| --- | --- | --- | --- |
+| Plain procedure | `Queue(@MyProc)` | Standalone procedure, no shared state needed | File I/O, independent calculations |
+| Object method | `Queue(@MyObj.MyMethod)` | Task needs access to object fields/state | Counter objects, result accumulators |
+| Indexed procedure | `Queue(@MyProc, i)` | Loop parallelism over an array/range | `for i := 0 to N-1 do Queue(@Proc, i)` |
+| Indexed method | `Queue(@MyObj.MyMethod, i)` | Loop parallelism + object state | Parallel array transform on an object |
+
+> [!NOTE]
+> `LastError` is **overwritten** (not appended) each time a task raises an exception. If you queue multiple tasks, only the last error is stored. Check `LastError` immediately after `WaitForAll` and call `ClearLastError` before reusing the pool.
+
 
 ## 📚 Examples
+
+### Getting Started
+
+1. 👋 **Starter** (`examples/Starter/Starter.lpr`)
+   - The absolute minimum to compile and run
+   - Heavily commented — every line explained
+   - Best first file to read before the other examples
 
 ### Simple Thread Pool Examples
 
@@ -330,6 +364,40 @@ end.
    - Simple: Use `GlobalThreadPool` or create `TSimpleThreadPool`
    - Producer-Consumer: Create `TProducerConsumerThreadPool`
 
+### Verify your setup
+
+Compile and run the simplest demo from the command line to confirm everything is wired up correctly:
+
+```bash
+# Using the Free Pascal compiler directly
+fpc -Fu./src examples/SimpleDemo/SimpleDemo.lpr && ./SimpleDemo
+
+# Or build with Lazarus from the command line
+lazbuild examples/SimpleDemo/SimpleDemo.lpi && ./SimpleDemo
+```
+
+Expected output (order may vary — tasks run in parallel):
+
+```text
+Demo of ThreadPool functionality:
+--------------------------------
+1. Queueing simple procedure
+2. Queueing method of a class
+3. Queueing indexed procedure
+4. Queueing method with index of a class
+--------------------------------
+Waiting for all tasks to complete...
+Simple procedure executed
+Method executed
+Indexed procedure executed with index: 1
+Method with index executed: 2
+--------------------------------
+All tasks completed successfully!
+```
+
+> [!TIP]
+> Make sure your source file starts with `{$mode objfpc}{$H+}`. Without this, Free Pascal defaults to TP/Delphi-7 mode and some syntax will not compile.
+
 ## ⚙️ Requirements
 
 - 💻 Free Pascal 3.2.2 or later
@@ -373,6 +441,72 @@ May take up to 5 mins to run all tests.
 - Graceful overflow management
 
 
+## ⚠️ Common Mistakes
+
+### 1. Freeing an object before `WaitForAll`
+
+```pascal
+// WRONG — MyObject may be freed while worker threads are still calling its methods
+MyObject := TMyClass.Create;
+GlobalThreadPool.Queue(@MyObject.DoWork);
+MyObject.Free;          // freed too early!
+GlobalThreadPool.WaitForAll;
+
+// CORRECT — always wait before freeing
+MyObject := TMyClass.Create;
+try
+  GlobalThreadPool.Queue(@MyObject.DoWork);
+  GlobalThreadPool.WaitForAll;  // wait first
+finally
+  MyObject.Free;        // safe to free now
+end;
+```
+
+### 2. Forgetting `WaitForAll`
+
+Without `WaitForAll`, your program may exit (and destroy the pool) while tasks are still running, causing access violations or silent data loss.
+
+```pascal
+// WRONG
+for i := 0 to 99 do
+  GlobalThreadPool.Queue(@ProcessItem, i);
+// program exits here, tasks may never finish
+
+// CORRECT
+for i := 0 to 99 do
+  GlobalThreadPool.Queue(@ProcessItem, i);
+GlobalThreadPool.WaitForAll;
+```
+
+### 3. Only the last error is kept
+
+`LastError` is overwritten on every exception — not appended. If multiple tasks fail, you only see the last one.
+
+```pascal
+// Queue several tasks that might fail
+for i := 0 to 9 do
+  Pool.Queue(@RiskyProc, i);
+Pool.WaitForAll;
+
+// Only the LAST exception is in LastError
+if Pool.LastError <> '' then
+  WriteLn('At least one task failed: ', Pool.LastError);
+Pool.ClearLastError;
+```
+
+### 4. Freeing the global pool manually
+
+`GlobalThreadPool` is managed by the unit's `initialization`/`finalization` blocks. Do **not** call `GlobalThreadPool.Free` — let the runtime clean it up.
+
+```pascal
+// WRONG
+GlobalThreadPool.Free;  // double-free at program exit!
+
+// CORRECT — just use it; finalization handles cleanup
+GlobalThreadPool.Queue(@MyProc);
+GlobalThreadPool.WaitForAll;
+```
+
 ## 🚧 Planned/In Progress
 - Adaptive thread adjustment based on a load factor
 - Support for `procedure Queue(AMethod: TProc; AArgs: array of Const);`
@@ -390,6 +524,10 @@ Special thanks to the Free Pascal and Lazarus communities and the creators of th
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) file for details.
+
+## 📋 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ---
 
