@@ -32,6 +32,9 @@ program Starter;
 {$mode objfpc}{$H+}{$J-}
 
 uses
+  {$IFDEF UNIX}
+  cthreads,  // MUST be first: enables threading support on Unix/Linux
+  {$ENDIF}
   Classes, SysUtils, ThreadPool.Simple;
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,9 @@ program TestRunner;
 {$mode objfpc}{$H+}
 
 uses
+  {$IFDEF UNIX}
+  cthreads,  // MUST be first: enables threading support on Unix/Linux
+  {$ENDIF}
   Classes, consoletestrunner,
   ThreadPool.Simple.Tests,
   ThreadPool.ProducerConsumer.Tests;

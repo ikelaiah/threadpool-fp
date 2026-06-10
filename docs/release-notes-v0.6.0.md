@@ -42,19 +42,25 @@ The unit reference in `tests/TestRunner.lpr` was also normalized
 
 ## Bug fixes
 
-Setting up CI surfaced and fixed three issues that previously only affected
-Linux (and example builds) — they were masked on Windows:
+Setting up CI surfaced several issues that previously only affected Linux (and
+example builds) — all were masked on Windows:
 
+- **Access violation on Linux at runtime (exit code 217).** The test runner and
+  example programs were missing the `cthreads` unit. On Unix/Linux, any program
+  that creates threads must include `cthreads` as its first unit; without it,
+  constructing the thread pool crashed while setting up its worker threads and
+  synchronization objects. `{$IFDEF UNIX}cthreads{$ENDIF}` was added to the test
+  runner and all 8 examples. Windows does not need it and is unaffected.
 - **Compilation on non-Windows targets.** `TSimpleWorkerThread` hardcoded the
   `stdcall` calling convention on its `IWorkerThread` methods
   (`QueryInterface`/`_AddRef`/`_Release`). FPC's `IInterface` only uses
   `stdcall` on Windows and `cdecl` elsewhere, so the implementations didn't
   match on Linux. Now guarded with `{$IFDEF WINDOWS}`.
-- **Worker-thread double-free on Linux.** Once the interface methods worked
-  correctly, `_Release` calling `Destroy` clashed with the pool freeing its
-  workers explicitly, causing an `EAccessViolation` during finalization.
-  `IWorkerThread` is now non-ref-counted — the pool owns worker lifetime via
-  `ClearThreads`.
+- **Hardened worker lifetime.** `IWorkerThread` is now explicitly
+  non-ref-counted (`_AddRef`/`_Release` return `-1`), so an interface
+  assignment can never free a worker the pool still owns via `ClearThreads`.
+  `TSimpleThreadPool.Destroy` is also now safe to run on a partially
+  constructed pool.
 - **Example projects couldn't find the library.** Every example except
   `Starter` had the `src` search path only in its `Release` build mode, so
   `lazbuild` (which builds the `Default` mode) failed with "Can't find unit".

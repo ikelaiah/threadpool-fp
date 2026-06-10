@@ -283,19 +283,28 @@ end;
 
 destructor TSimpleThreadPool.Destroy;
 begin
-  WaitForAll;  // Ensure all tasks complete before destroying
+  // Only drain outstanding work if the pool was fully constructed. If the
+  // constructor failed partway, FPC still calls this destructor on the
+  // half-built object, so guard against the sync objects being nil.
+  if Assigned(FWorkItemEvent) and Assigned(FErrorEvent) then
+    WaitForAll;  // Ensure all tasks complete before destroying
+
   FShutdown := True;
-  ClearWorkItems;
-  ClearThreads;
-  
-  // Clean up synchronization objects
+
+  if Assigned(FWorkItems) then
+    ClearWorkItems;
+  if Assigned(FThreads) then
+    ClearThreads;
+
+  // Clean up synchronization objects (each may be nil after a partial
+  // construction, so Free — which is nil-safe — is used throughout).
   FWorkItemLock.Free;
   FThreads.Free;
   FWorkItems.Free;
   FWorkItemEvent.Free;
   FErrorEvent.Free;
   FErrorLock.Free;
-  
+
   inherited Destroy;
 end;
 
