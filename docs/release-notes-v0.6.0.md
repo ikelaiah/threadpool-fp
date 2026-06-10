@@ -40,6 +40,26 @@ masked by the case-insensitive filesystem.
 The unit reference in `tests/TestRunner.lpr` was also normalized
 (`Threadpool.` → `ThreadPool.`).
 
+## Bug fixes
+
+Setting up CI surfaced and fixed three issues that previously only affected
+Linux (and example builds) — they were masked on Windows:
+
+- **Compilation on non-Windows targets.** `TSimpleWorkerThread` hardcoded the
+  `stdcall` calling convention on its `IWorkerThread` methods
+  (`QueryInterface`/`_AddRef`/`_Release`). FPC's `IInterface` only uses
+  `stdcall` on Windows and `cdecl` elsewhere, so the implementations didn't
+  match on Linux. Now guarded with `{$IFDEF WINDOWS}`.
+- **Worker-thread double-free on Linux.** Once the interface methods worked
+  correctly, `_Release` calling `Destroy` clashed with the pool freeing its
+  workers explicitly, causing an `EAccessViolation` during finalization.
+  `IWorkerThread` is now non-ref-counted — the pool owns worker lifetime via
+  `ClearThreads`.
+- **Example projects couldn't find the library.** Every example except
+  `Starter` had the `src` search path only in its `Release` build mode, so
+  `lazbuild` (which builds the `Default` mode) failed with "Can't find unit".
+  The search path is now in each project's global compiler options.
+
 ## Upgrade notes
 
 - **No code changes required.** `uses ThreadPool.Simple;`,
@@ -49,7 +69,11 @@ The unit reference in `tests/TestRunner.lpr` was also normalized
 
 ## Verification
 
-- `lazbuild tests/TestRunner.lpi` builds clean (0 errors) after the renames.
+CI builds the package, runs the test suite, and builds all 8 examples on both
+**Linux and Windows**:
+
+- Test suite: **35 tests, 0 errors, 0 failures, 0 unfreed memory blocks**.
+- All 8 example projects build cleanly on both platforms.
 
 ## Full changelog
 

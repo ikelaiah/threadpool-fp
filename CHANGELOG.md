@@ -20,6 +20,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Normalized the unit reference in `tests/TestRunner.lpr` (`Threadpool.` → `ThreadPool.`)
 - README: replaced the hardcoded test-count badge with a live CI status badge
 
+### Fixed
+
+- `ThreadPool.Simple` now compiles on non-Windows targets: the `IWorkerThread` methods (`QueryInterface`/`_AddRef`/`_Release`) hardcoded the `stdcall` calling convention, which only matches `IInterface` on Windows — FPC uses `cdecl` elsewhere. Guarded with `{$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF}`
+- Worker-thread double-free that caused an `EAccessViolation` on Linux during unit finalization: `IWorkerThread` is now non-ref-counted (the pool owns worker lifetime explicitly via `ClearThreads`), so an interface assignment can no longer free a live worker. Removed the now-unused `FRefCount` field
+- Example projects (all except `Starter`) only had the `src` search path in their `Release` build mode, so `lazbuild` (which builds the `Default` mode) could not find the units. Added the search path to each project's global compiler options
+
 ## [0.5.0] - 2026-04-13
 
 ### Added
