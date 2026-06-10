@@ -45,9 +45,9 @@ type
     procedure Terminate;
     procedure WaitFor;
     function GetThreadID: TThreadID;
-    function QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
-    function _AddRef: Integer; stdcall;
-    function _Release: Integer; stdcall;
+    function QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
+    function _AddRef: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
+    function _Release: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
   end;
 
   {$ENDREGION}
@@ -130,7 +130,7 @@ begin
   Result := ThreadID;
 end;
 
-function TSimpleWorkerThread.QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
+function TSimpleWorkerThread.QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
   if GetInterface(IID, Obj) then
     Result := S_OK
@@ -138,12 +138,12 @@ begin
     Result := E_NOINTERFACE;
 end;
 
-function TSimpleWorkerThread._AddRef: Integer; stdcall;
+function TSimpleWorkerThread._AddRef: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
   Result := InterlockedIncrement(FRefCount);
 end;
 
-function TSimpleWorkerThread._Release: Integer; stdcall;
+function TSimpleWorkerThread._Release: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
   Result := InterlockedDecrement(FRefCount);
   if Result = 0 then
