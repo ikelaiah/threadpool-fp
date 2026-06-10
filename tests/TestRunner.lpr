@@ -5,7 +5,7 @@ program TestRunner;
 uses
   Classes, consoletestrunner,
   ThreadPool.Simple.Tests,
-  Threadpool.ProducerConsumer.Tests;
+  ThreadPool.ProducerConsumer.Tests;
 
 type
 

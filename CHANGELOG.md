@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-06-10
+
+### Added
+
+- GitHub Actions CI (`.github/workflows/ci.yml`) — builds the package, runs the FPCUnit test suite, and builds all examples on both Linux and Windows for every push and pull request
+- `CONTRIBUTING.md` — build/test instructions, code style guide (including the unit-filename casing rule), and pull-request workflow
+- Issue templates (`.github/ISSUE_TEMPLATE/`) for bug reports and feature requests, plus a discussions contact link
+- Pull request template (`.github/PULL_REQUEST_TEMPLATE.md`)
+- README: Contributing section linking to `CONTRIBUTING.md`
+
+### Changed
+
+- Renamed source files to match their `unit` identifier casing so the library compiles on case-sensitive filesystems (Linux): `threadpool.simple.pas` → `ThreadPool.Simple.pas`, `threadpool.producerconsumer.pas` → `ThreadPool.ProducerConsumer.pas`, and `tests/threadpool.producerconsumer.tests.pas` → `tests/ThreadPool.ProducerConsumer.Tests.pas`
+- Normalized the unit reference in `tests/TestRunner.lpr` (`Threadpool.` → `ThreadPool.`)
+- README: replaced the hardcoded test-count badge with a live CI status badge
+
 ## [0.5.0] - 2026-04-13
 
 ### Added

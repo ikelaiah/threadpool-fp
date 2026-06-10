@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(wc -l /c/Users/iwank/Documents/github/threadpool-fp/src/*.pas)"
+      "Bash(wc -l /c/Users/iwank/Documents/github/threadpool-fp/src/*.pas)",
+      "Bash(grep -iE '\\\\.\\(o|ppu|a|compiled|bak|lps|res\\)$|/lib/|/backup/')",
+      "Bash(grep -iE 'threadpool.*\\\\.pas$|\\\\.lpk$|\\\\.lpi$|\\\\.lpr$')",
+      "Bash(grep -iE '\\\\.\\(o|ppu|bak\\)$|/lib/|/backup/')",
+      "Bash(fpc -iV)",
+      "Bash(grep '\\\\.lpi$')",
+      "Bash(lazbuild tests/TestRunner.lpi)",
+      "Bash(git remote *)",
+      "Bash(git status *)"
     ]
   }
 }
