@@ -186,10 +186,16 @@ begin
   Pool := TSimpleThreadPool.Create(4);
   try
     WorkerThread := TSimpleWorkerThread.Create(Pool);
-    Thread := WorkerThread;  // Explicit interface conversion
-    AssertTrue('TSimpleWorkerThread should implement IWorkerThread', Thread <> nil);
+    try
+      Thread := WorkerThread;  // Explicit interface conversion
+      AssertTrue('TSimpleWorkerThread should implement IWorkerThread', Thread <> nil);
+    finally
+      // IWorkerThread is non-ref-counted (the pool owns worker lifetime), so
+      // the worker must be freed explicitly rather than via the interface.
+      Thread := nil;
+      WorkerThread.Free;
+    end;
   finally
-    Thread := nil;
     Pool.Free;
   end;
 end;

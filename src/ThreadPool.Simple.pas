@@ -33,7 +33,6 @@ type
   { Simple worker thread implementation }
   TSimpleWorkerThread = class(TThread, IWorkerThread)
   private
-    FRefCount: Integer;
     FThreadPool: TObject;
   protected
     procedure Execute; override;
@@ -100,7 +99,6 @@ implementation
 constructor TSimpleWorkerThread.Create(AThreadPool: TObject);
 begin
   inherited Create(True);  // Create suspended
-  FRefCount := 0;
   FThreadPool := AThreadPool;
   FreeOnTerminate := False;
 end;
@@ -140,14 +138,17 @@ end;
 
 function TSimpleWorkerThread._AddRef: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
-  Result := InterlockedIncrement(FRefCount);
+  // The pool owns this thread's lifetime via FThreads/ClearThreads, so the
+  // IWorkerThread interface must NOT reference-count. Returning -1 marks this
+  // as a non-ref-counted interface (the same contract TComponent uses), which
+  // prevents an interface assignment from freeing the still-live worker.
+  Result := -1;
 end;
 
 function TSimpleWorkerThread._Release: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
-  Result := InterlockedDecrement(FRefCount);
-  if Result = 0 then
-    Destroy;
+  // See _AddRef: lifetime is owned by the pool, never by interface refcount.
+  Result := -1;
 end;
 
 procedure TSimpleWorkerThread.Execute;
