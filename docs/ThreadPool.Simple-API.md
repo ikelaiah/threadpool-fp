@@ -1,5 +1,15 @@
 # ThreadPool.Simple API Documentation
 
+> **Linux/macOS:** your program must list `cthreads` as the **first** unit in its
+> `uses` clause, or creating the pool will raise a runtime access violation
+> (exit code 217). Windows does not need it.
+>
+> ```pascal
+> uses
+>   {$IFDEF UNIX}cthreads,{$ENDIF}  // must be first on Unix-like systems
+>   ThreadPool.Simple;
+> ```
+
 ## Thread Pool Types
 
 ### GlobalThreadPool
