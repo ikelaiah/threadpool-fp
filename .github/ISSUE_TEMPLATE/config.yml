@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions & Discussion
+    url: https://github.com/ikelaiah/threadpool-fp/discussions
+    about: Ask usage questions or share what you built.

@@ -3,6 +3,9 @@ program SimpleThreadpoolDemo;
 {$mode objfpc}{$H+}{$J-}  // Standard FPC mode directives
 
 uses
+  {$IFDEF UNIX}
+  cthreads,          // MUST be first: enables threading support on Unix/Linux
+  {$ENDIF}
   Classes,           // For TThread and other basic classes
   SysUtils,          // For string handling and formatting
   ThreadPool.Simple, // Our thread pool implementation

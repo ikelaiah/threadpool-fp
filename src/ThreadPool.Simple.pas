@@ -33,7 +33,6 @@ type
   { Simple worker thread implementation }
   TSimpleWorkerThread = class(TThread, IWorkerThread)
   private
-    FRefCount: Integer;
     FThreadPool: TObject;
   protected
     procedure Execute; override;
@@ -45,9 +44,9 @@ type
     procedure Terminate;
     procedure WaitFor;
     function GetThreadID: TThreadID;
-    function QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
-    function _AddRef: Integer; stdcall;
-    function _Release: Integer; stdcall;
+    function QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
+    function _AddRef: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
+    function _Release: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
   end;
 
   {$ENDREGION}
@@ -100,7 +99,6 @@ implementation
 constructor TSimpleWorkerThread.Create(AThreadPool: TObject);
 begin
   inherited Create(True);  // Create suspended
-  FRefCount := 0;
   FThreadPool := AThreadPool;
   FreeOnTerminate := False;
 end;
@@ -130,7 +128,7 @@ begin
   Result := ThreadID;
 end;
 
-function TSimpleWorkerThread.QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
+function TSimpleWorkerThread.QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
   if GetInterface(IID, Obj) then
     Result := S_OK
@@ -138,16 +136,19 @@ begin
     Result := E_NOINTERFACE;
 end;
 
-function TSimpleWorkerThread._AddRef: Integer; stdcall;
+function TSimpleWorkerThread._AddRef: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
-  Result := InterlockedIncrement(FRefCount);
+  // The pool owns this thread's lifetime via FThreads/ClearThreads, so the
+  // IWorkerThread interface must NOT reference-count. Returning -1 marks this
+  // as a non-ref-counted interface (the same contract TComponent uses), which
+  // prevents an interface assignment from freeing the still-live worker.
+  Result := -1;
 end;
 
-function TSimpleWorkerThread._Release: Integer; stdcall;
+function TSimpleWorkerThread._Release: Integer; {$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
 begin
-  Result := InterlockedDecrement(FRefCount);
-  if Result = 0 then
-    Destroy;
+  // See _AddRef: lifetime is owned by the pool, never by interface refcount.
+  Result := -1;
 end;
 
 procedure TSimpleWorkerThread.Execute;
@@ -282,19 +283,28 @@ end;
 
 destructor TSimpleThreadPool.Destroy;
 begin
-  WaitForAll;  // Ensure all tasks complete before destroying
+  // Only drain outstanding work if the pool was fully constructed. If the
+  // constructor failed partway, FPC still calls this destructor on the
+  // half-built object, so guard against the sync objects being nil.
+  if Assigned(FWorkItemEvent) and Assigned(FErrorEvent) then
+    WaitForAll;  // Ensure all tasks complete before destroying
+
   FShutdown := True;
-  ClearWorkItems;
-  ClearThreads;
-  
-  // Clean up synchronization objects
+
+  if Assigned(FWorkItems) then
+    ClearWorkItems;
+  if Assigned(FThreads) then
+    ClearThreads;
+
+  // Clean up synchronization objects (each may be nil after a partial
+  // construction, so Free — which is nil-safe — is used throughout).
   FWorkItemLock.Free;
   FThreads.Free;
   FWorkItems.Free;
   FWorkItemEvent.Free;
   FErrorEvent.Free;
   FErrorLock.Free;
-  
+
   inherited Destroy;
 end;
 

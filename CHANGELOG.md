@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-06-11
+
+### Added
+
+- GitHub Actions CI (`.github/workflows/ci.yml`) — builds the package, runs the FPCUnit test suite, and builds all examples on both Linux and Windows for every push and pull request
+- `CONTRIBUTING.md` — build/test instructions, code style guide (including the unit-filename casing rule), and pull-request workflow
+- Issue templates (`.github/ISSUE_TEMPLATE/`) for bug reports and feature requests, plus a discussions contact link
+- Pull request template (`.github/PULL_REQUEST_TEMPLATE.md`)
+- README: Contributing section linking to `CONTRIBUTING.md`
+
+### Changed
+
+- Renamed source files to match their `unit` identifier casing so the library compiles on case-sensitive filesystems (Linux): `threadpool.simple.pas` → `ThreadPool.Simple.pas`, `threadpool.producerconsumer.pas` → `ThreadPool.ProducerConsumer.pas`, and `tests/threadpool.producerconsumer.tests.pas` → `tests/ThreadPool.ProducerConsumer.Tests.pas`
+- Normalized the unit reference in `tests/TestRunner.lpr` (`Threadpool.` → `ThreadPool.`)
+- README: replaced the hardcoded test-count badge with a live CI status badge
+
+### Fixed
+
+- **Access violation on Linux at runtime (exit code 217).** The test runner and example programs were missing the `cthreads` unit, which Unix/Linux requires (as the first unit) for any program that creates threads. Without it, constructing the thread pool crashed in the worker/sync-object setup. Added `{$IFDEF UNIX}cthreads{$ENDIF}` to `tests/TestRunner.lpr` and all 8 example programs. Windows was unaffected and did not need it
+- `ThreadPool.Simple` now compiles on non-Windows targets: the `IWorkerThread` methods (`QueryInterface`/`_AddRef`/`_Release`) hardcoded the `stdcall` calling convention, which only matches `IInterface` on Windows — FPC uses `cdecl` elsewhere. Guarded with `{$IFDEF WINDOWS}stdcall{$ELSE}cdecl{$ENDIF}`
+- `TSimpleWorkerThread` is now explicitly non-ref-counted (`_AddRef`/`_Release` return `-1`, the `TComponent` contract), so an `IWorkerThread` interface assignment can never free a worker the pool still owns via `ClearThreads`. Removed the now-unused `FRefCount` field
+- `TSimpleThreadPool.Destroy` is now safe to call on a partially constructed pool: it skips `WaitForAll` and the queue/thread cleanup when the relevant fields are `nil`, instead of dereferencing them
+- Example projects (all except `Starter`) only had the `src` search path in their `Release` build mode, so `lazbuild` (which builds the `Default` mode) could not find the units. Added the search path to each project's global compiler options
+- Tests `Test04_CreateDestroy` and `Test11_ThreadCount` hardcoded thread-count expectations that only held on multi-core machines; on low-core CI runners the enforced minimum of 4 threads made them fail. They now assert against the actual `Max(Min(requested, 2×ProcessorCount), 4)` formula
+- `Test08_QueueFullBehavior` assumed a single worker drains the queue, but the pool enforces a 4-thread minimum, so on Linux the queue drained before it could overflow. It now bursts `ThreadCount + QueueSize + 1` long-running tasks, which overflows a fixed queue deterministically regardless of core count or scheduling
+
 ## [0.5.0] - 2026-04-13
 
 ### Added

@@ -5,8 +5,8 @@ unit ThreadPool.Simple.Tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, 
-  ThreadPool.Types, ThreadPool.Simple, syncobjs, DateUtils;
+  Classes, SysUtils, fpcunit, testregistry,
+  ThreadPool.Types, ThreadPool.Simple, syncobjs, DateUtils, Math;
 
 type
   TTestException = class(Exception);
@@ -186,10 +186,16 @@ begin
   Pool := TSimpleThreadPool.Create(4);
   try
     WorkerThread := TSimpleWorkerThread.Create(Pool);
-    Thread := WorkerThread;  // Explicit interface conversion
-    AssertTrue('TSimpleWorkerThread should implement IWorkerThread', Thread <> nil);
+    try
+      Thread := WorkerThread;  // Explicit interface conversion
+      AssertTrue('TSimpleWorkerThread should implement IWorkerThread', Thread <> nil);
+    finally
+      // IWorkerThread is non-ref-counted (the pool owns worker lifetime), so
+      // the worker must be freed explicitly rather than via the interface.
+      Thread := nil;
+      WorkerThread.Free;
+    end;
   finally
-    Thread := nil;
     Pool.Free;
   end;
 end;
@@ -199,19 +205,22 @@ var
   Pool: TSimpleThreadPool;
 const
   MinThreads = 4;
-  TestThreads = 6;
+  // Request well above both the minimum and any plausible 2x-core cap so the
+  // result is governed by the cap, independent of the host's core count.
+  TestThreads = 64;
 begin
   Pool := TSimpleThreadPool.Create(TestThreads);
   try
-    AssertEquals('Thread count should match when above minimum', 
-      TestThreads, Pool.ThreadCount);
+    AssertEquals('Thread count should be capped at 2x processor count',
+      Max(Min(TestThreads, TThread.ProcessorCount * 2), MinThreads),
+      Pool.ThreadCount);
   finally
     Pool.Free;
   end;
 
   Pool := TSimpleThreadPool.Create(2);
   try
-    AssertEquals('Thread count should be adjusted to minimum', 
+    AssertEquals('Thread count should be adjusted to minimum',
       MinThreads, Pool.ThreadCount);
   finally
     Pool.Free;
@@ -279,23 +288,26 @@ begin
 end;
 
 procedure TSimpleThreadPoolTests.Test11_ThreadCount;
+const
+  MinThreads = 4;
 var
   Pool: TSimpleThreadPool;
 begin
-  // Test maximum thread count
+  // Test maximum thread count. The result is the 2x-core cap, but never below
+  // the enforced minimum of 4 (which matters on low-core CI runners).
   Pool := TSimpleThreadPool.Create(TThread.ProcessorCount * 3);
   try
-    AssertEquals('Thread count should be limited to 2x processor count',
-      TThread.ProcessorCount * 2, Pool.ThreadCount);
+    AssertEquals('Thread count should be limited to 2x processor count (min 4)',
+      Max(TThread.ProcessorCount * 2, MinThreads), Pool.ThreadCount);
   finally
     Pool.Free;
   end;
-  
-  // Test zero thread count
+
+  // Test zero thread count: defaults to processor count, again floored at 4.
   Pool := TSimpleThreadPool.Create(0);
   try
-    AssertEquals('Thread count should default to processor count',
-      TThread.ProcessorCount, Pool.ThreadCount);
+    AssertEquals('Thread count should default to processor count (min 4)',
+      Max(TThread.ProcessorCount, MinThreads), Pool.ThreadCount);
   finally
     Pool.Free;
   end;

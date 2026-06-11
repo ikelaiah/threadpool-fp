@@ -1,0 +1,64 @@
+name: 🐛 Bug Report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug report!
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal code snippet or the steps that trigger the problem.
+      placeholder: |
+        1. Create a TSimpleThreadPool with ...
+        2. Queue ...
+        3. Call WaitForAll ...
+      render: pascal
+    validations:
+      required: true
+  - type: dropdown
+    id: pool
+    attributes:
+      label: Which implementation?
+      options:
+        - ThreadPool.Simple
+        - ThreadPool.ProducerConsumer
+        - Both / not sure
+    validations:
+      required: true
+  - type: input
+    id: fpc-version
+    attributes:
+      label: Free Pascal version
+      placeholder: "3.2.2"
+    validations:
+      required: true
+  - type: input
+    id: lazarus-version
+    attributes:
+      label: Lazarus version (if used)
+      placeholder: "3.6.0"
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, error messages, or context that might help.

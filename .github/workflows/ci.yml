@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Lazarus + FPC
+        uses: gcarreno/setup-lazarus@v3
+        with:
+          lazarus-version: stable
+
+      - name: Build package
+        run: lazbuild package/lazarus/threadpool_fp.lpk
+
+      - name: Build test runner
+        run: lazbuild tests/TestRunner.lpi
+
+      - name: Run tests
+        shell: bash
+        run: |
+          if [ -f tests/TestRunner.exe ]; then
+            ./tests/TestRunner.exe -a -p --format=plain
+          else
+            ./tests/TestRunner -a -p --format=plain
+          fi
+
+  build-examples:
+    name: Build examples (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Lazarus + FPC
+        uses: gcarreno/setup-lazarus@v3
+        with:
+          lazarus-version: stable
+
+      - name: Build all examples
+        shell: bash
+        run: |
+          set -e
+          for lpi in examples/*/*.lpi; do
+            echo "==> Building $lpi"
+            lazbuild "$lpi"
+          done

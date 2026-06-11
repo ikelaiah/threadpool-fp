@@ -280,41 +280,42 @@ end;
 procedure TTestProducerConsumerThreadPool.Test08_QueueFullBehavior;
 const
   QUEUE_SIZE = 2;
-  THREAD_COUNT = 1;
 var
   TestPool: TProducerConsumerThreadPool;
-  I: Integer;
+  I, BurstSize: Integer;
   ExceptionRaised: Boolean;
   ExceptionMessage: string;
   Config: TBackpressureConfig;
 begin
   LogTest('Test08_QueueFullBehavior starting...');
-  
-  // Create a separate pool for this test
-  TestPool := TProducerConsumerThreadPool.Create(THREAD_COUNT, QUEUE_SIZE);
+
+  // The base pool enforces a minimum of 4 worker threads regardless of the
+  // requested count, so the test cannot rely on a "single slow worker". With
+  // N workers and a queue of QUEUE_SIZE, the system can hold at most
+  // N + QUEUE_SIZE long-running tasks before the queue is full. Queue one more
+  // than that, fast, with MaxAttempts=1 and no backpressure delay, and the
+  // overflow MUST raise EQueueFullException — independent of scheduling or the
+  // host's core count.
+  TestPool := TProducerConsumerThreadPool.Create(1, QUEUE_SIZE);
   try
-    // Configure aggressive backpressure
     Config := TestPool.WorkQueue.BackpressureConfig;
     Config.MaxAttempts := 1;
     Config.LowLoadDelay := 0;
     Config.MediumLoadDelay := 0;
     Config.HighLoadDelay := 0;
     TestPool.WorkQueue.BackpressureConfig := Config;
-    
-    ExceptionRaised := False;
 
-    // Fill the queue with long-running tasks so the worker cannot drain the
-    // queue between these enqueues and the third attempt below.
-    // SlowTask (250ms) is too short — the single worker may dequeue item 1
-    // before item 3 is attempted, defeating the "full queue" condition.
-    LogTest('test08: Queueing first task');
-    TestPool.Queue(@LongTask);
-    LogTest('test08: Queueing second task');
-    TestPool.Queue(@LongTask);
+    ExceptionRaised := False;
+    // ThreadCount reflects the enforced minimum; +QUEUE_SIZE in-flight slots,
+    // +1 to guarantee overflow.
+    BurstSize := TestPool.ThreadCount + QUEUE_SIZE + 1;
+    LogTest(Format('test08: bursting %d LongTasks (threads=%d, queue=%d)',
+      [BurstSize, TestPool.ThreadCount, QUEUE_SIZE]));
 
     try
-      TestPool.Queue(@LongTask);
-      LogTest('ERROR: Queue succeeded when it should have been full');
+      for I := 1 to BurstSize do
+        TestPool.Queue(@LongTask);
+      LogTest('ERROR: Queue never reported full');
     except
       on E: EQueueFullException do
       begin
@@ -326,17 +327,14 @@ begin
         LogTest('Caught unexpected exception type: ' + E.ClassName + ': ' + E.Message);
     end;
 
-    // Wait for queued tasks to complete
-    TestPool.WaitForAll;
-
     AssertTrue('Should have raised an exception', ExceptionRaised);
-    AssertTrue('Exception should be EQueueFullException', 
+    AssertTrue('Exception should be EQueueFullException',
       ExceptionMessage.Contains('Queue is full'));
   finally
     TestPool.WaitForAll;
     TestPool.Free;
   end;
-  
+
   LogTest('Test08_QueueFullBehavior finished');
 end;
 
