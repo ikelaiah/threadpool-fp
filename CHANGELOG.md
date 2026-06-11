@@ -27,6 +27,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `TSimpleWorkerThread` is now explicitly non-ref-counted (`_AddRef`/`_Release` return `-1`, the `TComponent` contract), so an `IWorkerThread` interface assignment can never free a worker the pool still owns via `ClearThreads`. Removed the now-unused `FRefCount` field
 - `TSimpleThreadPool.Destroy` is now safe to call on a partially constructed pool: it skips `WaitForAll` and the queue/thread cleanup when the relevant fields are `nil`, instead of dereferencing them
 - Example projects (all except `Starter`) only had the `src` search path in their `Release` build mode, so `lazbuild` (which builds the `Default` mode) could not find the units. Added the search path to each project's global compiler options
+- Tests `Test04_CreateDestroy` and `Test11_ThreadCount` hardcoded thread-count expectations that only held on multi-core machines; on low-core CI runners the enforced minimum of 4 threads made them fail. They now assert against the actual `Max(Min(requested, 2×ProcessorCount), 4)` formula
+- `Test08_QueueFullBehavior` assumed a single worker drains the queue, but the pool enforces a 4-thread minimum, so on Linux the queue drained before it could overflow. It now bursts `ThreadCount + QueueSize + 1` long-running tasks, which overflows a fixed queue deterministically regardless of core count or scheduling
 
 ## [0.5.0] - 2026-04-13
 

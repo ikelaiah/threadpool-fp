@@ -65,6 +65,12 @@ example builds) — all were masked on Windows:
   `Starter` had the `src` search path only in its `Release` build mode, so
   `lazbuild` (which builds the `Default` mode) failed with "Can't find unit".
   The search path is now in each project's global compiler options.
+- **Core-count-dependent tests.** A few tests hardcoded thread-count
+  expectations and queue-draining timing that only held on the developer's
+  multi-core machine; on low-core CI runners the enforced 4-thread minimum
+  made them fail. They now assert against the actual thread-count formula and
+  overflow the queue with a burst sized off the real thread count, so they're
+  deterministic on any number of cores.
 
 ## Upgrade notes
 
