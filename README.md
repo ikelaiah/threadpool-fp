@@ -149,6 +149,8 @@ A thread pool with fixed-size circular buffer (1024 items) and built-in backpres
 > ```
 >
 > The examples in this repository already include this guard — see `examples/Starter/Starter.lpr`.
+>
+> From the [official FPC documentation](https://www.freepascal.org/docs-html/rtl/cthreads/index.html): *"The cthreads unit simply needs to be included in the uses clause of the program, preferably the very first unit, and the initialization section of the unit will do all the work."*
 
 ### Simple Thread Pool
 ```pascal

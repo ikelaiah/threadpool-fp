@@ -9,6 +9,8 @@
 >   {$IFDEF UNIX}cthreads,{$ENDIF}  // must be first on Unix-like systems
 >   ThreadPool.Simple;
 > ```
+>
+> See the [official FPC documentation on `cthreads`](https://www.freepascal.org/docs-html/rtl/cthreads/index.html).
 
 ## Thread Pool Types
 

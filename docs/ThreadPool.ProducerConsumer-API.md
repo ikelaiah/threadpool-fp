@@ -17,6 +17,8 @@ For simpler use cases see `ThreadPool.Simple`.
 >   {$IFDEF UNIX}cthreads,{$ENDIF}  // must be first on Unix-like systems
 >   ThreadPool.ProducerConsumer;
 > ```
+>
+> See the [official FPC documentation on `cthreads`](https://www.freepascal.org/docs-html/rtl/cthreads/index.html).
 
 ---
 
