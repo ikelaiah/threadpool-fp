@@ -1,6 +1,6 @@
 # 🚀 ThreadPool for Free Pascal
 
-[![Version](https://img.shields.io/badge/version-0.6.0-8B5CF6.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.5-8B5CF6.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-1E3A8A.svg)](https://opensource.org/licenses/MIT)
 [![Free Pascal](https://img.shields.io/badge/Free%20Pascal-3.2.2+-3B82F6.svg)](https://www.freepascal.org/)
 [![Lazarus](https://img.shields.io/badge/Lazarus-4.0+-60A5FA.svg)](https://www.lazarus-ide.org/)
@@ -133,9 +133,30 @@ A thread pool with fixed-size circular buffer (1024 items) and built-in backpres
 
 ## 🏃 Quick Start
 
+> [!IMPORTANT]
+> **On Linux/macOS, your program must use the `cthreads` unit — and it must be the *first* unit in your program's `uses` clause.**
+>
+> Free Pascal does not install a threading manager by default on Unix-like systems. Without `cthreads`, creating the thread pool fails at runtime with an access violation (exit code 217). Windows does not need it.
+>
+> ```pascal
+> program MyApp;
+> {$mode objfpc}{$H+}
+> uses
+>   {$IFDEF UNIX}
+>   cthreads,            // MUST be first on Linux/macOS
+>   {$ENDIF}
+>   ThreadPool.Simple;   // or ThreadPool.ProducerConsumer
+> ```
+>
+> The examples in this repository already include this guard — see `examples/Starter/Starter.lpr`.
+>
+> From the [official FPC documentation](https://www.freepascal.org/docs-html/rtl/cthreads/index.html): *"The cthreads unit simply needs to be included in the uses clause of the program, preferably the very first unit, and the initialization section of the unit will do all the work."*
+
 ### Simple Thread Pool
 ```pascal
-uses ThreadPool.Simple;
+uses
+  {$IFDEF UNIX}cthreads,{$ENDIF}  // see the note above — required on Linux/macOS
+  ThreadPool.Simple;
 
 // Simple parallel processing
 procedure ProcessItem(index: Integer);
@@ -154,7 +175,9 @@ end;
 
 ### Producer-Consumer Thread Pool
 ```pascal
-uses ThreadPool.ProducerConsumer;
+uses
+  {$IFDEF UNIX}cthreads,{$ENDIF}  // see the note above — required on Linux/macOS
+  ThreadPool.ProducerConsumer;
 
 procedure DoWork;
 begin
@@ -361,12 +384,16 @@ All four `Queue` overloads share the same pattern — pick the one that fits you
    
    For Simple Thread Pool:
    ```pascal
-   uses ThreadPool.Simple;
+   uses
+     {$IFDEF UNIX}cthreads,{$ENDIF}  // required on Linux/macOS (must be first)
+     ThreadPool.Simple;
    ```
    
    For Producer-Consumer Thread Pool:
    ```pascal
-   uses ThreadPool.ProducerConsumer;
+   uses
+     {$IFDEF UNIX}cthreads,{$ENDIF}  // required on Linux/macOS (must be first)
+     ThreadPool.ProducerConsumer;
    ```
 
 3. Start using:
@@ -406,6 +433,8 @@ All tasks completed successfully!
 
 > [!TIP]
 > Make sure your source file starts with `{$mode objfpc}{$H+}`. Without this, Free Pascal defaults to TP/Delphi-7 mode and some syntax will not compile.
+>
+> On Linux/macOS, also ensure `{$IFDEF UNIX}cthreads{$ENDIF}` is the **first** unit in your program's `uses` clause (see the [Quick Start](#-quick-start) note). Forgetting it causes a runtime access violation, not a compile error — so the build succeeds but the program crashes when it creates the pool.
 
 ## ⚙️ Requirements
 
@@ -517,7 +546,8 @@ GlobalThreadPool.WaitForAll;
 ```
 
 ## 🚧 Planned/In Progress
-- Adaptive thread adjustment based on a load factor
+
+- Richer error handling — collect all task errors (not just the last) and an optional `OnError` callback (planned for 0.7.0)
 - Support for `procedure Queue(AMethod: TProc; AArgs: array of Const);`
 - More comprehensive tests
 - More examples

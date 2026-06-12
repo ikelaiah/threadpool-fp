@@ -8,6 +8,18 @@ outpace consumption and you need predictable memory usage and overflow control.
 
 For simpler use cases see `ThreadPool.Simple`.
 
+> **Linux/macOS:** your program must list `cthreads` as the **first** unit in its
+> `uses` clause, or creating the pool will raise a runtime access violation
+> (exit code 217). Windows does not need it.
+>
+> ```pascal
+> uses
+>   {$IFDEF UNIX}cthreads,{$ENDIF}  // must be first on Unix-like systems
+>   ThreadPool.ProducerConsumer;
+> ```
+>
+> See the [official FPC documentation on `cthreads`](https://www.freepascal.org/docs-html/rtl/cthreads/index.html).
+
 ---
 
 ## Constructor

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.5] - 2026-06-11
+
+### Added
+
+- README: prominent `cthreads` note in Quick Start, plus the `{$IFDEF UNIX}cthreads{$ENDIF}` guard in every Quick Start and Installation snippet — programs that use this library on Linux/macOS must list `cthreads` as their first unit or they crash at runtime with an access violation (exit code 217)
+- Platform note about `cthreads` at the top of both API documents (`ThreadPool.Simple-API.md`, `ThreadPool.ProducerConsumer-API.md`)
+
+### Changed
+
+- README "Planned/In Progress": dropped adaptive thread adjustment (it conflicts with the library's fixed-count, intentionally-simple design); replaced with richer error handling, planned for 0.7.0
+
 ## [0.6.0] - 2026-06-11
 
 ### Added
