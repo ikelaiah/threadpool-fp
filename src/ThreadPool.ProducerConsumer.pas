@@ -95,7 +95,6 @@ type
     FThreads: TThreadList;
     FWorkQueue: TThreadSafeQueue;  // Use our custom thread-safe queue
     FCompletionEvent: TEvent;
-    FErrorLock: TCriticalSection;
     FWorkItemCount: integer;
     FWorkItemLock: TCriticalSection;
     FLocalThreadCount: integer;
@@ -151,7 +150,6 @@ begin
   FThreads := TThreadList.Create;
   FWorkQueue := TThreadSafeQueue.Create(AQueueSize);
   FCompletionEvent := TEvent.Create(nil, True, True, '');
-  FErrorLock := TCriticalSection.Create;
   FWorkItemLock := TCriticalSection.Create;
   FWorkItemCount := 0;
   FLastError := '';
@@ -172,7 +170,6 @@ begin
   ClearThreads;
   FWorkQueue.Free;
   FCompletionEvent.Free;
-  FErrorLock.Free;
   FWorkItemLock.Free;
   FThreads.Free;
   inherited;
@@ -529,12 +526,10 @@ begin
           on E: Exception do
           begin
             DebugLog('Error executing work item: ' + E.Message);
-            Pool.FErrorLock.Enter;
-            try
-              Pool.SetLastError(E.Message);
-            finally
-              Pool.FErrorLock.Leave;
-            end;
+            // SetLastError is thread-safe on its own (base class locking), so
+            // no extra lock is needed. Calling it outside any subclass lock
+            // also ensures the OnError callback it may fire cannot deadlock.
+            Pool.SetLastError(E.Message);
           end;
         end;
 

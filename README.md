@@ -1,6 +1,6 @@
 # 🚀 ThreadPool for Free Pascal
 
-[![Version](https://img.shields.io/badge/version-0.6.5-8B5CF6.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.0-8B5CF6.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-1E3A8A.svg)](https://opensource.org/licenses/MIT)
 [![Free Pascal](https://img.shields.io/badge/Free%20Pascal-3.2.2+-3B82F6.svg)](https://www.freepascal.org/)
 [![Lazarus](https://img.shields.io/badge/Lazarus-4.0+-60A5FA.svg)](https://www.lazarus-ide.org/)
@@ -124,9 +124,10 @@ A thread pool with fixed-size circular buffer (1024 items) and built-in backpres
   - Protected error handling
   
 - **Error Management**
-  - Thread-specific error capture
-  - Error messages with thread IDs
-  - Continuous operation after exceptions
+  - Worker exceptions are caught automatically; the pool keeps running
+  - `LastError` for the most recent failure
+  - `Errors` collection captures **all** failed-task messages (capped, oldest dropped) — *v0.7.0*
+  - Optional `OnError` callback fired per failed task — *v0.7.0*
 
 > [!NOTE]
 > Thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for details.
@@ -273,6 +274,38 @@ begin
 end.
 ```
 
+### Capturing all task errors (v0.7.0)
+
+`LastError` only holds the **most recent** failure. To inspect **every** failed
+task, use the `Errors` collection (oldest first, capped at `MAX_STORED_ERRORS = 1000`).
+This works the same on both pools:
+
+```pascal
+var
+  Msg: string;
+begin
+  Pool.ClearErrors;
+  for i := 0 to 9 do
+    Pool.Queue(@RiskyProc, i);
+  Pool.WaitForAll;
+
+  WriteLn(Pool.ErrorCount, ' task(s) failed:');
+  for Msg in Pool.Errors do
+    WriteLn('  - ', Msg);
+
+  Pool.ClearErrors;  // resets the collection and LastError
+end;
+```
+
+Prefer to react the moment a task fails (instead of polling after `WaitForAll`)?
+Assign an `OnError` callback:
+
+```pascal
+// IMPORTANT: OnError is called from a worker thread. Keep the handler short and
+// thread-safe; synchronize if it touches the UI or shared state.
+Pool.OnError := @MyHandler.OnTaskError;
+```
+
 ### Tips
 
 > [!NOTE]
@@ -323,7 +356,7 @@ All four `Queue` overloads share the same pattern — pick the one that fits you
 | Indexed method | `Queue(@MyObj.MyMethod, i)` | Loop parallelism + object state | Parallel array transform on an object |
 
 > [!NOTE]
-> `LastError` is **overwritten** (not appended) each time a task raises an exception. If you queue multiple tasks, only the last error is stored. Check `LastError` immediately after `WaitForAll` and call `ClearLastError` before reusing the pool.
+> `LastError` holds only the **most recent** exception. To see **every** failed task, use the `Errors` collection (added in v0.7.0) — see [Capturing all task errors](#capturing-all-task-errors-v070). Call `ClearErrors` before reusing the pool.
 
 
 ## 📚 Examples
@@ -356,6 +389,15 @@ All four `Queue` overloads share the same pattern — pick the one that fits you
    - High volume task processing
    - Queue full handling
    - Performance comparison
+
+5. 🛡️ **Error Handling — Basic** (`examples/SimpleErrorHandlingBasic/SimpleErrorHandlingBasic.lpr`)
+   - **Start here** for error handling — the easy way
+   - Just queue, `WaitForAll`, then read `Errors`/`ErrorCount`/`LastError`
+   - No callback, no custom class, no locking required
+
+6. 🛡️ **Error Handling — Advanced** (`examples/SimpleErrorHandling/SimpleErrorHandling.lpr`)
+   - Adds the `OnError` callback to react *while* tasks run
+   - Shows the thread-safe handler pattern (needed only because the handler keeps shared state)
 
 ### Producer-Consumer Examples
 
@@ -516,9 +558,11 @@ for i := 0 to 99 do
 GlobalThreadPool.WaitForAll;
 ```
 
-### 3. Only the last error is kept
+### 3. `LastError` only keeps the most recent error
 
-`LastError` is overwritten on every exception — not appended. If multiple tasks fail, you only see the last one.
+`LastError` is overwritten on every exception. If multiple tasks fail and you
+only check `LastError`, you see just the last one. Use the `Errors` collection
+to capture all of them — see [Capturing all task errors](#capturing-all-task-errors-v070) below.
 
 ```pascal
 // Queue several tasks that might fail
@@ -526,10 +570,12 @@ for i := 0 to 9 do
   Pool.Queue(@RiskyProc, i);
 Pool.WaitForAll;
 
-// Only the LAST exception is in LastError
+// Only the LAST exception is in LastError...
 if Pool.LastError <> '' then
-  WriteLn('At least one task failed: ', Pool.LastError);
-Pool.ClearLastError;
+  WriteLn('Most recent failure: ', Pool.LastError);
+// ...but Errors has them all:
+WriteLn(Pool.ErrorCount, ' task(s) failed in total');
+Pool.ClearErrors;
 ```
 
 ### 4. Freeing the global pool manually
@@ -547,7 +593,7 @@ GlobalThreadPool.WaitForAll;
 
 ## 🚧 Planned/In Progress
 
-- Richer error handling — collect all task errors (not just the last) and an optional `OnError` callback (planned for 0.7.0)
+- Performance & robustness pass — event-driven idle workers (remove the Simple pool's poll loop), shutdown review, stress/soak tests (planned for 0.8.0)
 - Support for `procedure Queue(AMethod: TProc; AArgs: array of Const);`
 - More comprehensive tests
 - More examples

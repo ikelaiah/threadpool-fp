@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-06-12
+
+### Added
+
+- Error-collection API on both pools (implemented once in `TThreadPoolBase`, inherited by `TSimpleThreadPool` and `TProducerConsumerThreadPool`):
+  - `Errors: TStringArray` — every captured task error message, oldest first
+  - `ErrorCount: Integer`
+  - `ClearErrors` — clears the collection and `LastError`
+  - `OnError: TThreadPoolErrorEvent` — optional callback fired (on a worker thread) each time a task raises
+- `MAX_STORED_ERRORS` constant (1000) caps the collection; oldest messages are dropped beyond it so a high volume of failing tasks cannot exhaust memory
+- 8 new unit tests covering the error-collection API across both pools (collection captures all, `OnError` fires per failure, `ClearErrors` resets, cap enforced, `LastError` back-compat)
+- New examples: `examples/SimpleErrorHandlingBasic` (the easy way — poll `Errors`/`ErrorCount`/`LastError` after `WaitForAll`, no callback or locking) and `examples/SimpleErrorHandling` (advanced — adds the `OnError` callback with a thread-safe handler)
+
+### Changed
+
+- `LastError` is unchanged and remains backward-compatible (still the most recent error)
+- Removed the now-redundant per-pool `FErrorLock`; error capture is serialized by the base class, which also fires `OnError` outside its lock to avoid deadlocks
+- README/API docs: documented the new `Errors`/`ErrorCount`/`OnError`/`ClearErrors` API and corrected the `LastError`-overwrite caveats; corrected an inaccurate "error messages include thread IDs" claim (messages are raw)
+- README "Planned/In Progress": next milestone is a performance & robustness pass (0.8.0)
+
 ## [0.6.5] - 2026-06-11
 
 ### Added

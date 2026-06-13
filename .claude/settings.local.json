@@ -9,7 +9,17 @@
       "Bash(grep '\\\\.lpi$')",
       "Bash(lazbuild tests/TestRunner.lpi)",
       "Bash(git remote *)",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(lazbuild package/lazarus/threadpool_fp.lpk)",
+      "Bash(./tests/TestRunner.exe -a -p --format=plain)",
+      "Bash(fpc -Fu../src -Futests threadpooltests.pas)",
+      "Read(//c/Users/iwank/Documents/github/**)",
+      "Bash(lazbuild examples/SimpleErrorHandling/SimpleErrorHandling.lpi)",
+      "Bash(./examples/SimpleErrorHandling/SimpleErrorHandling.exe)",
+      "Bash(lazbuild examples/SimpleErrorHandlingBasic/SimpleErrorHandlingBasic.lpi)",
+      "Bash(./examples/SimpleErrorHandlingBasic/SimpleErrorHandlingBasic.exe)"
     ]
   }
 }

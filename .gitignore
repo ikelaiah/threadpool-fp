@@ -36,6 +36,9 @@ tests/lib/
 .vscode/
 .idea/
 
+# lazbuild-generated local package-link cache
+packagefiles.xml
+
 # OS specific files
 ## Windows
 Thumbs.db
