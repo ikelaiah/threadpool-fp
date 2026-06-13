@@ -36,6 +36,9 @@ tests/lib/
 .vscode/
 .idea/
 
+# Claude Code local settings (per-developer, not shared)
+.claude/settings.local.json
+
 # lazbuild-generated local package-link cache
 packagefiles.xml
 
