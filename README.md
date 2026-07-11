@@ -399,24 +399,34 @@ All four `Queue` overloads share the same pattern — pick the one that fits you
    - Adds the `OnError` callback to react *while* tasks run
    - Shows the thread-safe handler pattern (needed only because the handler keeps shared state)
 
+7. 📁 **Parallel File Hasher** (`examples/ParallelFileHasher/ParallelFileHasher.lpr`)
+   - Hashes multiple files concurrently with `ThreadPool.Simple`
+   - Demonstrates real file I/O failures captured through `Errors`/`OnError`
+   - Creates and cleans up its own sample files
+
 ### Producer-Consumer Examples
 
-5. 🎓 **Simple Demo** (`examples/ProdConSimpleDemo/ProdConSimpleDemo.lpr`)
+1. 🎓 **Simple Demo** (`examples/ProdConSimpleDemo/ProdConSimpleDemo.lpr`)
    - Basic usage with ProducerConsumerThreadPool
    - Demonstrates procedures and methods
    - Shows proper object lifetime
    
-6. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
+2. 🔢 **Square Numbers** (`examples/ProdConSquareNumbers/ProdConSquareNumbers.lpr`)
    - High volume task processing
    - Queue full handling
    - Backpressure demonstration
    - Performance monitoring
 
-7. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
+3. 📝 **Message Processor** (`examples/ProdConMessageProcessor/ProdConMessageProcessor.lpr`)
    - Queue-based task processing
    - Thread-safe message handling
    - Graceful shutdown
    - Error handling patterns
+
+4. 🌐 **Parallel URL Fetcher** (`examples/ParallelUrlFetcher/ParallelUrlFetcher.lpr`)
+   - Fetches multiple URLs concurrently with `ThreadPool.ProducerConsumer`
+   - Demonstrates real HTTP/DNS failures captured through `Errors`/`OnError`
+   - Uses one HTTP client per task so clients are not shared across threads
 
 
 ## 🛠️ Installation
