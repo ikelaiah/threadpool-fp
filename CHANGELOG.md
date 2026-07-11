@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.7.0] - 2026-06-12
+## [0.7.0] - 2026-07-11
 
 ### Added
 
@@ -15,7 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `OnError: TThreadPoolErrorEvent` — optional callback fired (on a worker thread) each time a task raises
 - `MAX_STORED_ERRORS` constant (1000) caps the collection; oldest messages are dropped beyond it so a high volume of failing tasks cannot exhaust memory
 - 8 new unit tests covering the error-collection API across both pools (collection captures all, `OnError` fires per failure, `ClearErrors` resets, cap enforced, `LastError` back-compat)
-- New examples: `examples/SimpleErrorHandlingBasic` (the easy way — poll `Errors`/`ErrorCount`/`LastError` after `WaitForAll`, no callback or locking) and `examples/SimpleErrorHandling` (advanced — adds the `OnError` callback with a thread-safe handler)
+- New examples:
+  - `examples/SimpleErrorHandlingBasic` — the easy way: poll `Errors`/`ErrorCount`/`LastError` after `WaitForAll`, no callback or locking
+  - `examples/SimpleErrorHandling` — advanced error handling with the `OnError` callback and a thread-safe handler
+  - `examples/ParallelFileHasher` — hashes multiple files concurrently and demonstrates real file I/O failures
+  - `examples/ParallelUrlFetcher` — fetches multiple URLs concurrently and demonstrates real HTTP/DNS failures
 
 ### Changed
 

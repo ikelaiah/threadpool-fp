@@ -70,11 +70,21 @@ The API lives in `TThreadPoolBase`, so `TSimpleThreadPool` and
 - `OnError` handlers run on a worker thread — synchronize any access to shared or
   UI state.
 
+## Examples
+
+- `SimpleErrorHandlingBasic` — the easy way: inspect `Errors`, `ErrorCount`, and
+  `LastError` after `WaitForAll`.
+- `SimpleErrorHandling` — advanced handling with an `OnError` callback.
+- `ParallelFileHasher` — hashes multiple files concurrently and reports real
+  file I/O failures.
+- `ParallelUrlFetcher` — fetches multiple URLs concurrently and reports real
+  HTTP/DNS failures.
+
 ## Verification
 
 - Test suite: **43 tests, 0 errors, 0 failures, 0 unfreed memory blocks**
   (8 new tests cover the error-collection API on both pools).
-- Package and all 8 examples build cleanly.
+- Package and all 10 top-level examples build cleanly.
 
 ## Full changelog
 
