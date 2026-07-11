@@ -129,10 +129,34 @@ Pool.WaitForAll;
 if Pool.LastError <> '' then
 begin
   // LastError holds the raw message of the most recent worker exception.
-  // Earlier failures are overwritten — only the last one is available.
   WriteLn('Task error: ', Pool.LastError);
   Pool.ClearLastError;  // reset before reuse
 end;
+```
+
+To inspect **every** task failure (not just the last), use the `Errors`
+collection added in v0.7.0 — oldest first, capped at `MAX_STORED_ERRORS = 1000`:
+
+```pascal
+var
+  Msg: string;
+begin
+  Pool.ClearErrors;
+  // ... queue tasks ...
+  Pool.WaitForAll;
+
+  WriteLn(Pool.ErrorCount, ' task(s) failed:');
+  for Msg in Pool.Errors do
+    WriteLn('  - ', Msg);
+  Pool.ClearErrors;  // resets the collection and LastError
+end;
+```
+
+Or assign `OnError` to react the moment a task fails, instead of polling:
+
+```pascal
+// Called from a worker thread — keep it short and thread-safe.
+Pool.OnError := @Handler.OnTaskError;
 ```
 
 ### Full pattern
@@ -167,10 +191,14 @@ end;
 ```pascal
 property ThreadCount: Integer;        // read-only; number of worker threads
 property LastError: string;           // read-only; last worker exception message
+property Errors: TStringArray;        // read-only; all captured messages (capped)
+property ErrorCount: Integer;         // read-only; count of messages in Errors
+property OnError: TThreadPoolErrorEvent; // fired (on a worker thread) per failed task
 property WorkQueue: TThreadSafeQueue; // access to queue for monitoring/config
 
 procedure WaitForAll;
 procedure ClearLastError;
+procedure ClearErrors;                // clears both Errors and LastError
 ```
 
 ---
@@ -324,7 +352,7 @@ end;
 ## Limitations
 
 - Fixed queue capacity — no dynamic resizing
-- Only the most recent worker exception is stored in `LastError`
+- `LastError` holds only the most recent worker exception (use `Errors` to collect all; capped at `MAX_STORED_ERRORS`)
 - No task priority or cancellation support
 - No dynamic thread scaling after construction
 - Not suitable for real-time or UI-thread work

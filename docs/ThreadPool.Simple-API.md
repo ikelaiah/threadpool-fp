@@ -118,7 +118,6 @@ begin
     if Pool.LastError <> '' then
     begin
       // LastError holds the raw exception message of the most recent failure.
-      // If multiple tasks fail, only the last exception is stored.
       WriteLn('Error: ', Pool.LastError);
       Pool.ClearLastError;  // Reset before reusing the pool
     end;
@@ -128,11 +127,57 @@ begin
 end;
 ```
 
+### Collecting all errors (v0.7.0)
+
+`LastError` only holds the most recent failure. To inspect **every** task error,
+use the `Errors` collection (oldest first, capped at `MAX_STORED_ERRORS = 1000`):
+
+```pascal
+var
+  Msg: string;
+begin
+  Pool.ClearErrors;
+  for i := 0 to N - 1 do
+    Pool.Queue(@RiskyProcedure);
+  Pool.WaitForAll;
+
+  WriteLn(Pool.ErrorCount, ' task(s) failed:');
+  for Msg in Pool.Errors do
+    WriteLn('  - ', Msg);
+
+  Pool.ClearErrors;  // resets the collection and LastError
+end;
+```
+
+### Reacting to errors as they happen (v0.7.0)
+
+Assign `OnError` to be notified the moment a task fails, instead of polling after
+`WaitForAll`:
+
+```pascal
+type
+  TMyHandler = class
+    procedure OnTaskError(const AMessage: string);
+  end;
+
+procedure TMyHandler.OnTaskError(const AMessage: string);
+begin
+  // NOTE: called from a worker thread. Keep it short and thread-safe;
+  // synchronize if you touch the UI or shared state.
+  Log('task failed: ' + AMessage);
+end;
+
+Pool.OnError := @Handler.OnTaskError;
+```
+
 ### Properties
 
 ```pascal
-property LastError: string;   // Raw message of the most recent worker exception
-property ThreadCount: Integer; // Number of worker threads (read-only)
+property LastError: string;            // Raw message of the most recent worker exception
+property Errors: TStringArray;         // All captured messages (oldest first, capped)
+property ErrorCount: Integer;          // Number of messages currently in Errors
+property OnError: TThreadPoolErrorEvent; // Fired (on a worker thread) per failed task
+property ThreadCount: Integer;         // Number of worker threads (read-only)
 ```
 
 ### Methods
@@ -144,6 +189,7 @@ procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
 procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
 procedure WaitForAll;
 procedure ClearLastError;
+procedure ClearErrors;  // clears both Errors and LastError
 ```
 
 ---

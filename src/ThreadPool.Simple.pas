@@ -60,7 +60,6 @@ type
     FWorkItemLock: TCriticalSection;
     FWorkItemCount: Integer;
     FWorkItemEvent: TEvent;
-    FErrorLock: TCriticalSection;
     FErrorEvent: TEvent;
     procedure ClearThreads;
     procedure ClearWorkItems;
@@ -183,14 +182,12 @@ begin
       except
         on E: Exception do
         begin
-          // Capture error
-          Pool.FErrorLock.Enter;
-          try
-            Pool.SetLastError(E.Message);
-            Pool.FErrorEvent.SetEvent;
-          finally
-            Pool.FErrorLock.Leave;
-          end;
+          // Capture error. SetLastError is thread-safe on its own (base class
+          // locking), and TEvent.SetEvent is thread-safe, so no extra lock is
+          // needed here. Keeping SetLastError outside any subclass lock also
+          // ensures the OnError callback it may fire cannot deadlock.
+          Pool.SetLastError(E.Message);
+          Pool.FErrorEvent.SetEvent;
         end;
       end;
       WorkItem.Free;
@@ -267,7 +264,6 @@ begin
   FThreads := TThreadList.Create;
   FWorkItems := TThreadList.Create;
   FWorkItemLock := TCriticalSection.Create;
-  FErrorLock := TCriticalSection.Create;
   FErrorEvent := TEvent.Create(nil, True, False, '');
   FWorkItemEvent := TEvent.Create(nil, True, True, '');
   FWorkItemCount := 0;
@@ -303,7 +299,6 @@ begin
   FWorkItems.Free;
   FWorkItemEvent.Free;
   FErrorEvent.Free;
-  FErrorLock.Free;
 
   inherited Destroy;
 end;

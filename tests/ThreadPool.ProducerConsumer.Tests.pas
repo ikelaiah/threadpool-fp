@@ -16,7 +16,8 @@ type
     FSharedCounter: Integer;
     FSharedLock: TCriticalSection;
     FTestResults: TStringList;
-    
+    FOnErrorCount: Integer;
+
     procedure LogTest(const Msg: string);
     procedure IncrementCounter;
     procedure AddToResults;
@@ -25,6 +26,8 @@ type
     procedure SlowTask;
     procedure LongTask;
     procedure RaiseTestError;
+    procedure RaiseOtherError;
+    procedure HandlePoolError(const AMessage: string);
     procedure SleepTask;
     function MeasureQueueTime(const TaskCount: Integer): Int64;
   protected
@@ -45,6 +48,11 @@ type
     procedure Test12_LoadFactorCalculation;
     procedure Test13_BackpressureBehavior;
     procedure Test14_AdaptivePerformance;
+
+    // Error-collection API (v0.7.0)
+    procedure Test15_ErrorsCollectionCapturesAll;
+    procedure Test16_OnErrorCallbackFires;
+    procedure Test17_ClearErrorsResetsCollection;
   end;
 
 implementation
@@ -135,6 +143,17 @@ end;
 procedure TTestProducerConsumerThreadPool.RaiseTestError;
 begin
   raise Exception.Create('Test error');
+end;
+
+procedure TTestProducerConsumerThreadPool.RaiseOtherError;
+begin
+  raise Exception.Create('Other error');
+end;
+
+procedure TTestProducerConsumerThreadPool.HandlePoolError(const AMessage: string);
+begin
+  // Fired from a worker thread — increment atomically.
+  InterlockedIncrement(FOnErrorCount);
 end;
 
 procedure TTestProducerConsumerThreadPool.SleepTask;
@@ -547,8 +566,66 @@ begin
   LogTest(Format('Performance ratio: %.2fx faster under low load', [Ratio]));
 
   AssertTrue('Low load should be proportionally faster', Ratio > 1.5);
-  
+
   LogTest('Test14_AdaptivePerformance finished');
+end;
+
+procedure TTestProducerConsumerThreadPool.Test15_ErrorsCollectionCapturesAll;
+var
+  Errors: TStringArray;
+begin
+  LogTest('Test15_ErrorsCollectionCapturesAll starting...');
+  // Two distinct failing tasks: the collection should keep BOTH, where the old
+  // single-slot LastError kept only the most recent.
+  FThreadPool.ClearErrors;
+  FThreadPool.Queue(@RaiseTestError);
+  FThreadPool.Queue(@RaiseOtherError);
+  FThreadPool.WaitForAll;
+
+  AssertEquals('Both task errors should be collected', 2, FThreadPool.ErrorCount);
+
+  Errors := FThreadPool.Errors;
+  AssertEquals('Errors array length should match ErrorCount', 2, Length(Errors));
+  // Order of completion is not guaranteed, so assert presence, not position.
+  AssertTrue('Collection should contain the first error message',
+    (Errors[0] = 'Test error') or (Errors[1] = 'Test error'));
+  AssertTrue('Collection should contain the second error message',
+    (Errors[0] = 'Other error') or (Errors[1] = 'Other error'));
+  // LastError still works and holds one of the two (back-compat).
+  AssertTrue('LastError should still hold one of the errors',
+    (FThreadPool.LastError = 'Test error') or (FThreadPool.LastError = 'Other error'));
+  LogTest('Test15_ErrorsCollectionCapturesAll finished');
+end;
+
+procedure TTestProducerConsumerThreadPool.Test16_OnErrorCallbackFires;
+begin
+  LogTest('Test16_OnErrorCallbackFires starting...');
+  FOnErrorCount := 0;
+  FThreadPool.ClearErrors;
+  FThreadPool.OnError := @HandlePoolError;
+  try
+    FThreadPool.Queue(@RaiseTestError);
+    FThreadPool.Queue(@RaiseOtherError);
+    FThreadPool.WaitForAll;
+
+    AssertEquals('OnError should fire once per failed task', 2, FOnErrorCount);
+  finally
+    FThreadPool.OnError := nil;  // avoid dangling callback after this test
+  end;
+  LogTest('Test16_OnErrorCallbackFires finished');
+end;
+
+procedure TTestProducerConsumerThreadPool.Test17_ClearErrorsResetsCollection;
+begin
+  LogTest('Test17_ClearErrorsResetsCollection starting...');
+  FThreadPool.Queue(@RaiseTestError);
+  FThreadPool.WaitForAll;
+  AssertTrue('Precondition: an error was captured', FThreadPool.ErrorCount > 0);
+
+  FThreadPool.ClearErrors;
+  AssertEquals('ClearErrors should empty the collection', 0, FThreadPool.ErrorCount);
+  AssertEquals('ClearErrors should also clear LastError', '', FThreadPool.LastError);
+  LogTest('Test17_ClearErrorsResetsCollection finished');
 end;
 
 initialization

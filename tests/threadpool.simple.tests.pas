@@ -30,9 +30,12 @@ type
     FTestObject: TTestObject;
     FCounter: Integer;
     FCS: TCriticalSection;
-    
+    FOnErrorCount: Integer;
+
     procedure IncrementCounter;
     procedure IncrementCounterWithIndex(AIndex: Integer);
+    // Thread-safe OnError handler used by Test23.
+    procedure HandlePoolError(const AMessage: string);
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -67,6 +70,13 @@ type
     procedure Test19_ExceptionMessage;
     procedure Test20_MultipleExceptions;
     procedure Test21_ExceptionAfterClear;
+
+    // Error-collection API (v0.7.0)
+    procedure Test22_ErrorsCollectionCapturesAll;
+    procedure Test23_OnErrorCallbackFires;
+    procedure Test24_ClearErrorsResetsCollection;
+    procedure Test25_ErrorCollectionIsCapped;
+    procedure Test26_LastErrorStillWorks;
   end;
 
 var
@@ -501,6 +511,90 @@ begin
   FThreadPool.Queue(@GlobalIncrementCounter);
   FThreadPool.WaitForAll;
   AssertEquals('Should work normally after clearing error', 1, FCounter);
+end;
+
+procedure TSimpleThreadPoolTests.Test22_ErrorsCollectionCapturesAll;
+var
+  Errors: TStringArray;
+begin
+  // Two distinct failing tasks: the collection should keep BOTH, where the old
+  // single-slot LastError kept only the most recent.
+  FThreadPool.ClearErrors;
+  FThreadPool.Queue(@RaiseTestException);
+  FThreadPool.Queue(@RaiseAnotherException);
+  FThreadPool.WaitForAll;
+
+  AssertEquals('Both task errors should be collected', 2, FThreadPool.ErrorCount);
+
+  Errors := FThreadPool.Errors;
+  AssertEquals('Errors array length should match ErrorCount', 2, Length(Errors));
+  // Order of completion is not guaranteed, so assert presence, not position.
+  AssertTrue('Collection should contain the first error message',
+    (Errors[0] = 'Test exception message') or (Errors[1] = 'Test exception message'));
+  AssertTrue('Collection should contain the second error message',
+    (Errors[0] = 'Another exception message') or (Errors[1] = 'Another exception message'));
+end;
+
+procedure TSimpleThreadPoolTests.Test23_OnErrorCallbackFires;
+begin
+  FOnErrorCount := 0;
+  FThreadPool.ClearErrors;
+  FThreadPool.OnError := @HandlePoolError;
+  try
+    FThreadPool.Queue(@RaiseTestException);
+    FThreadPool.Queue(@RaiseAnotherException);
+    FThreadPool.WaitForAll;
+
+    AssertEquals('OnError should fire once per failed task', 2, FOnErrorCount);
+  finally
+    FThreadPool.OnError := nil;  // avoid dangling callback after this test
+  end;
+end;
+
+procedure TSimpleThreadPoolTests.Test24_ClearErrorsResetsCollection;
+begin
+  FThreadPool.Queue(@RaiseTestException);
+  FThreadPool.WaitForAll;
+  AssertTrue('Precondition: an error was captured', FThreadPool.ErrorCount > 0);
+
+  FThreadPool.ClearErrors;
+  AssertEquals('ClearErrors should empty the collection', 0, FThreadPool.ErrorCount);
+  AssertEquals('ClearErrors should also clear LastError', '', FThreadPool.LastError);
+end;
+
+procedure TSimpleThreadPoolTests.Test25_ErrorCollectionIsCapped;
+var
+  I: Integer;
+begin
+  // Queue more failing tasks than the cap so the oldest entries are dropped;
+  // ErrorCount must never exceed MAX_STORED_ERRORS regardless of how many fail.
+  FThreadPool.ClearErrors;
+  for I := 1 to MAX_STORED_ERRORS + 250 do
+    FThreadPool.Queue(@RaiseAnotherException);
+  FThreadPool.WaitForAll;
+
+  AssertEquals('Error collection should be capped at MAX_STORED_ERRORS',
+    MAX_STORED_ERRORS, FThreadPool.ErrorCount);
+end;
+
+procedure TSimpleThreadPoolTests.Test26_LastErrorStillWorks;
+begin
+  // Back-compat: LastError keeps reflecting the most recent error even with the
+  // new collection in place.
+  FThreadPool.ClearErrors;
+  FThreadPool.Queue(@RaiseTestException);
+  FThreadPool.WaitForAll;
+
+  AssertEquals('LastError should hold the most recent error message',
+    'Test exception message', FThreadPool.LastError);
+  AssertTrue('Errors collection should also contain it',
+    FThreadPool.ErrorCount >= 1);
+end;
+
+procedure TSimpleThreadPoolTests.HandlePoolError(const AMessage: string);
+begin
+  // Fired from a worker thread — increment atomically.
+  InterlockedIncrement(FOnErrorCount);
 end;
 
 procedure TSimpleThreadPoolTests.IncrementCounter;
