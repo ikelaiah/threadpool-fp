@@ -17,50 +17,14 @@
         </Optimizations>
       </CodeGeneration>
     </CompilerOptions>
-    <Description Value="# 🚀 ThreadPool for Free Pascal
+    <Description Value="ThreadPool for Free Pascal
 
-A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify parallel processing for simple tasks! ⚡
+A lightweight, dependency-free thread pool library with two event-driven implementations:
 
-## ✨ Features &amp; Implementations
+- ThreadPool.Simple: an unbounded FIFO with a managed global instance
+- ThreadPool.ProducerConsumer: a bounded FIFO with timeout-aware backpressure
 
-This library provides two thread pool implementations, each with its own strengths:
-
-### 1. 🚀 Simple Thread Pool (ThreadPool.Simple)
-```pascal
-uses ThreadPool.Simple;
-```
-- Global singleton instance for quick use
-- Event-driven FIFO scheduling
-- Automatic thread count management
-- Best for simple parallel tasks
-- Lower memory overhead
-
-### 2. 🏭 Producer-Consumer Thread Pool (ThreadPool.ProducerConsumer)
-```pascal
-uses ThreadPool.ProducerConsumer;
-```
-
-A thread pool with fixed-size circular buffer (1024 items) and built-in backpressure handling:
-
-- **Queue Management**
-  - Fixed-size circular buffer for predictable memory usage
-  - Efficient space reuse without dynamic resizing
-  - Configurable capacity (default: 1024 items)
-
-- **Backpressure Handling**
-  - Event-driven not-full signalling
-  - Timeout-aware TryQueue overloads
-  - Queue raises EQueueFullException when its compatibility timeout expires
-
-- **Lifecycle &amp; Error Safety**
-  - Deterministic draining shutdown
-  - Timeout-aware waits
-  - Debug logging disabled by default
-
-Best for:
-- High-volume task processing with rate control
-- Systems needing graceful overflow handling
-- Applications requiring execution monitoring"/>
+Both pools provide draining shutdown, timeout-aware waits, four task forms, and captured worker errors. See README.md and docs/CHEATSHEET.md for usage."/>
     <License Value="MIT License
 
 Copyright (c) 2024 Iwan Kelaiah
@@ -82,7 +46,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE. "/>
-    <Version Minor="8"/>
+    <Version Minor="8" Release="5"/>
     <Files>
       <Item>
         <Filename Value="..\..\src\ThreadPool.Simple.pas"/>

@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.5] - 2026-07-14
+
+### Added
+
+- New project identity with an editable SVG banner source and a synchronized
+  1800×600 PNG used by GitHub-facing documentation
+- [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md), a compact reference for pool
+  selection, queue overloads, timeouts, shutdown, errors, and object lifetime
+- Focused v0.8.5 release notes
+
+### Changed
+
+- Reorganized and shortened the README around choosing a pool, getting started,
+  lifecycle rules, and links to deeper documentation
+- Simplified the Lazarus package description and advanced its package version
+  to 0.8.5
+- Refined the banner for crisp queue and worker paths, restrained endpoint and
+  scheduler glow, and clearer subtitle spacing
+
+### Compatibility
+
+- Documentation and project identity release only; there are no runtime, API,
+  timeout, queueing, or lifecycle behavior changes from v0.8.0
+
 ## [0.8.0] - 2026-07-13
 
 ### Added
