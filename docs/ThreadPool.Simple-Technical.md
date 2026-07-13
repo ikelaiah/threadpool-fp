@@ -19,7 +19,7 @@ graph TD
 
     subgraph "Thread Pool"
         G & S --> |owns| TL[TThreadList]
-        G & S --> |owns| WQ[TThreadList<br>Work Queue]
+        G & S --> |owns| WQ[Dynamic circular<br>FIFO queue]
         G & S --> |owns| CS[TCriticalSection<br>Work Item Count]
         G & S --> |owns| EV[TEvent<br>Completion Signal]
         G & S --> |owns| EL[TCriticalSection<br>Error Lock]
@@ -59,18 +59,18 @@ A singleton `TSimpleThreadPool` declared in the unit's `var` section.
 The main pool class. Responsibilities:
 
 - Owns and manages a list of `TSimpleWorkerThread` instances (`TThreadList`)
-- Maintains a thread-safe work item queue (`TThreadList`)
+- Maintains a dynamically growing O(1) circular FIFO queue
 - Tracks the number of pending work items with a `TCriticalSection` + counter
 - Signals `WaitForAll` callers via a `TEvent` when the counter reaches zero
-- Captures worker exceptions thread-safely via a second `TCriticalSection`
+- Captures worker exceptions and protects lifecycle transitions
 
 ### TSimpleWorkerThread
 
 Each worker thread:
 
 - Is created suspended and started explicitly by the pool constructor
-- Loops continuously, popping work items from the shared queue
-- Calls `Sleep(1)` when the queue is empty to avoid busy-waiting
+- Blocks on `FWorkAvailableEvent` while the queue is empty
+- Drains available FIFO work after an enqueue wakes it
 - Terminates cleanly when `Terminated` is set during pool destruction
 
 ### TSimpleWorkItem
@@ -156,10 +156,12 @@ end;
 | Mechanism | Purpose |
 | --- | --- |
 | `TThreadList` (threads) | Safe iteration and termination of worker threads |
-| `TThreadList` (work items) | Safe enqueue / dequeue across threads |
+| `TCriticalSection` (FIFO queue) | Safe O(1) enqueue / dequeue across threads |
 | `TCriticalSection` (work item count) | Atomic increment/decrement of pending counter |
 | `TEvent` (completion) | Signals `WaitForAll` when counter hits zero |
-| `TCriticalSection` (error lock) | Safe write to `FLastError` from worker threads |
+| `TEvent` (work available) | Wakes idle workers without polling |
+| Lifecycle lock/events | Serialize admission, draining, and stopped state |
+| Error lock | Protects `LastError`, `Errors`, and `OnError` |
 
 ---
 
@@ -167,28 +169,14 @@ end;
 
 ### How worker exceptions are captured
 
-```pascal
-// Inside TSimpleWorkerThread.Execute
-try
-  WorkItem.Execute;
-except
-  on E: Exception do
-  begin
-    Pool.FErrorLock.Enter;
-    try
-      Pool.SetLastError(E.Message);  // stores raw message only
-      Pool.FErrorEvent.SetEvent;
-    finally
-      Pool.FErrorLock.Leave;
-    end;
-  end;
-end;
-```
+Workers store the task error through `TThreadPoolBase.SetLastError`. Completion
+accounting runs in a separate `finally` block, and exceptions raised by an
+`OnError` handler are contained at the callback boundary.
 
 ### Key behaviours
 
 - `LastError` stores the **raw exception message** — no thread ID prefix
-- Only the **most recent** exception is kept; earlier ones are overwritten
+- `LastError` keeps the most recent exception and `Errors` keeps the bounded history
 - The pool **keeps running** after an exception — remaining tasks are processed
 - Call `ClearLastError` before reusing a pool to reset error state
 - Exceptions are **not re-raised** on the calling thread; check `LastError` after `WaitForAll`
@@ -197,21 +185,32 @@ end;
 
 1. Always check `LastError` after `WaitForAll`
 2. Call `ClearLastError` before queuing a new batch if reusing the pool
-3. If you need to track all failures, collect them inside the task procedures themselves
+3. Use `Errors` when a batch can contain more than one failure
 
 ---
 
 ## Performance Considerations
 
-- Workers use `Sleep(1)` when idle — low CPU overhead but ~1 ms latency before a newly queued item is picked up
+- Idle workers block on an event and are woken immediately by submission
+- Queue insertion/removal is O(1); growth only occurs when the ring is full
 - For very large numbers of tiny tasks, consider batching them into fewer, larger work items to reduce queue overhead
 - Thread count defaults to `ProcessorCount`; raising it above that can hurt performance due to context-switching
 
 ---
 
+## Lifecycle
+
+The shared base state moves from `tpsAccepting` to `tpsDraining` to
+`tpsStopped`. `Shutdown` stops admission, waits for submissions already in
+progress, drains every accepted task, wakes and joins the workers, and publishes
+the stopped state. It is idempotent. Queueing after draining begins raises
+`EThreadPoolShutdown`, and a worker attempting to shut down its own pool is
+rejected before it can wait on itself.
+
+---
+
 ## Limitations
 
-- Only the most recent worker exception is stored (no error queue)
 - Exceptions are not propagated to the main thread — must poll `LastError`
 - Thread count is fixed after construction — no dynamic scaling
 - No task prioritisation or cancellation

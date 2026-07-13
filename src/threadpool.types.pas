@@ -14,7 +14,20 @@ const
     of this cap. }
   MAX_STORED_ERRORS = 1000;
 
+  { Used by timeout-aware queue and wait operations. }
+  THREADPOOL_INFINITE = High(Cardinal);
+
 type
+  EThreadPoolShutdown = class(Exception);
+
+  { A pool accepts work until Shutdown begins, drains every accepted task, and
+    then becomes permanently stopped. }
+  TThreadPoolState = (
+    tpsAccepting,
+    tpsDraining,
+    tpsStopped
+  );
+
   { Task Types - Different kinds of work that can be queued }
   TThreadProcedure = procedure;
   TThreadMethod = procedure of object;
@@ -71,7 +84,17 @@ type
     procedure Queue(AMethod: TThreadMethod); overload;
     procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); overload;
     procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); overload;
-    procedure WaitForAll;
+    function TryQueue(AProcedure: TThreadProcedure;
+      ATimeoutMS: Cardinal): Boolean; overload;
+    function TryQueue(AMethod: TThreadMethod;
+      ATimeoutMS: Cardinal): Boolean; overload;
+    function TryQueue(AProcedure: TThreadProcedureIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal): Boolean; overload;
+    function TryQueue(AMethod: TThreadMethodIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal): Boolean; overload;
+    procedure WaitForAll; overload;
+    function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload;
+    procedure Shutdown;
     procedure ClearLastError;
     procedure ClearErrors;
     function GetLastError: string;
@@ -80,6 +103,7 @@ type
     function GetErrorCount: Integer;
     function GetOnError: TThreadPoolErrorEvent;
     procedure SetOnError(AValue: TThreadPoolErrorEvent);
+    function GetState: TThreadPoolState;
     property LastError: string read GetLastError;
     property ThreadCount: Integer read GetThreadCount;
     { All task error messages captured since the last ClearErrors/ClearLastError,
@@ -88,6 +112,7 @@ type
     property ErrorCount: Integer read GetErrorCount;
     { Optional callback fired from a worker thread whenever a task raises. }
     property OnError: TThreadPoolErrorEvent read GetOnError write SetOnError;
+    property State: TThreadPoolState read GetState;
   end;
 
   { Base class for thread pool implementations }
@@ -102,8 +127,17 @@ type
     FErrors: TStringList;
     FErrorsLock: TCriticalSection;
     FOnError: TThreadPoolErrorEvent;
+    FLifecycleLock: TCriticalSection;
+    FNoSubmittersEvent: TEvent;
+    FStoppedEvent: TEvent;
+    FState: TThreadPoolState;
+    FActiveSubmitters: Integer;
 
     procedure SetLastError(const AError: string); virtual;
+    procedure BeginQueue;
+    procedure EndQueue;
+    function BeginShutdown: Boolean;
+    procedure FinishShutdown;
   public
     constructor Create(AThreadCount: Integer); virtual;
     destructor Destroy; override;
@@ -113,7 +147,17 @@ type
     procedure Queue(AMethod: TThreadMethod); virtual; abstract;
     procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); virtual; abstract;
     procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); virtual; abstract;
+    function TryQueue(AProcedure: TThreadProcedure;
+      ATimeoutMS: Cardinal): Boolean; virtual; abstract;
+    function TryQueue(AMethod: TThreadMethod;
+      ATimeoutMS: Cardinal): Boolean; virtual; abstract;
+    function TryQueue(AProcedure: TThreadProcedureIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal): Boolean; virtual; abstract;
+    function TryQueue(AMethod: TThreadMethodIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal): Boolean; virtual; abstract;
     procedure WaitForAll; virtual; abstract;
+    function WaitForAll(ATimeoutMS: Cardinal): Boolean; virtual; abstract;
+    procedure Shutdown; virtual; abstract;
     procedure ClearLastError; virtual;
     procedure ClearErrors; virtual;
     function GetLastError: string; virtual;
@@ -122,6 +166,7 @@ type
     function GetErrorCount: Integer; virtual;
     function GetOnError: TThreadPoolErrorEvent; virtual;
     procedure SetOnError(AValue: TThreadPoolErrorEvent); virtual;
+    function GetState: TThreadPoolState; virtual;
 
     { All task error messages captured since the last ClearErrors/ClearLastError,
       oldest first, capped at MAX_STORED_ERRORS. }
@@ -129,6 +174,7 @@ type
     property ErrorCount: Integer read GetErrorCount;
     { Optional callback fired from a worker thread whenever a task raises. }
     property OnError: TThreadPoolErrorEvent read GetOnError write SetOnError;
+    property State: TThreadPoolState read GetState;
   end;
 
 implementation
@@ -143,6 +189,11 @@ begin
   FErrors := TStringList.Create;
   FErrorsLock := TCriticalSection.Create;
   FOnError := nil;
+  FLifecycleLock := TCriticalSection.Create;
+  FNoSubmittersEvent := TEvent.Create(nil, True, True, '');
+  FStoppedEvent := TEvent.Create(nil, True, False, '');
+  FState := tpsAccepting;
+  FActiveSubmitters := 0;
 
   // Apply thread count safety limits
   if AThreadCount <= 0 then
@@ -155,6 +206,9 @@ end;
 destructor TThreadPoolBase.Destroy;
 begin
   FShutdown := True;
+  FStoppedEvent.Free;
+  FNoSubmittersEvent.Free;
+  FLifecycleLock.Free;
   FErrors.Free;
   FErrorsLock.Free;
   inherited;
@@ -179,7 +233,73 @@ begin
   // Fire the callback outside the lock so a handler cannot deadlock by calling
   // back into the pool, and so a slow handler does not block other workers.
   if Assigned(Handler) then
-    Handler(AError);
+  begin
+    { A diagnostic callback must never be able to terminate a worker or skip
+      its completion accounting. Callback exceptions are deliberately
+      contained at this boundary. }
+    try
+      Handler(AError);
+    except
+      { Ignore callback failures. The original task error is already stored. }
+    end;
+  end;
+end;
+
+procedure TThreadPoolBase.BeginQueue;
+begin
+  FLifecycleLock.Enter;
+  try
+    if FState <> tpsAccepting then
+      raise EThreadPoolShutdown.Create('Thread pool is shutting down');
+    Inc(FActiveSubmitters);
+    if FActiveSubmitters = 1 then
+      FNoSubmittersEvent.ResetEvent;
+  finally
+    FLifecycleLock.Leave;
+  end;
+end;
+
+procedure TThreadPoolBase.EndQueue;
+begin
+  FLifecycleLock.Enter;
+  try
+    Dec(FActiveSubmitters);
+    if FActiveSubmitters = 0 then
+      FNoSubmittersEvent.SetEvent;
+  finally
+    FLifecycleLock.Leave;
+  end;
+end;
+
+function TThreadPoolBase.BeginShutdown: Boolean;
+begin
+  FLifecycleLock.Enter;
+  try
+    Result := FState = tpsAccepting;
+    if Result then
+    begin
+      FState := tpsDraining;
+      FShutdown := True;
+    end;
+  finally
+    FLifecycleLock.Leave;
+  end;
+
+  if Result then
+    FNoSubmittersEvent.WaitFor(INFINITE)
+  else if GetState = tpsDraining then
+    FStoppedEvent.WaitFor(INFINITE);
+end;
+
+procedure TThreadPoolBase.FinishShutdown;
+begin
+  FLifecycleLock.Enter;
+  try
+    FState := tpsStopped;
+    FStoppedEvent.SetEvent;
+  finally
+    FLifecycleLock.Leave;
+  end;
 end;
 
 procedure TThreadPoolBase.ClearLastError;
@@ -217,6 +337,7 @@ function TThreadPoolBase.GetErrors: TStringArray;
 var
   I: Integer;
 begin
+  Result := nil;
   FErrorsLock.Enter;
   try
     SetLength(Result, FErrors.Count);
@@ -254,6 +375,16 @@ begin
     FOnError := AValue;
   finally
     FErrorsLock.Leave;
+  end;
+end;
+
+function TThreadPoolBase.GetState: TThreadPoolState;
+begin
+  FLifecycleLock.Enter;
+  try
+    Result := FState;
+  finally
+    FLifecycleLock.Leave;
   end;
 end;
 

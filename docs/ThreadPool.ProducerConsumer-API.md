@@ -45,9 +45,9 @@ Pool := TProducerConsumerThreadPool.Create(4, 512);
 
 ## Queue Methods
 
-All four overloads are thread-safe. Each call may block briefly if the queue is
-near capacity (adaptive backpressure delays apply). After the maximum retry
-attempts are exhausted, `EQueueFullException` is raised.
+All four overloads are thread-safe. A call waits only while the bounded queue is
+actually full. If its compatibility timeout expires, `EQueueFullException` is
+raised.
 
 ```pascal
 procedure Queue(AProcedure: TThreadProcedure);
@@ -62,6 +62,17 @@ Pool.Queue(@MyObject.MyMethod);      // object method
 Pool.Queue(@MyIndexedProc, 42);      // indexed procedure
 Pool.Queue(@MyObject.MyMethod, 42);  // indexed method
 ```
+
+Use the matching `TryQueue` overloads when queue saturation is expected. They
+return `False` instead of raising:
+
+```pascal
+if not Pool.TryQueue(@MyProcedure, 50) then
+  WriteLn('No queue space became available within 50 ms');
+```
+
+Timeouts are milliseconds. `0` does not wait and `THREADPOOL_INFINITE` waits
+without a deadline.
 
 ### Task type signatures (from `ThreadPool.Types`)
 
@@ -82,6 +93,14 @@ Blocks until every queued task has finished executing.
 Pool.WaitForAll;
 ```
 
+```pascal
+if not Pool.WaitForAll(250) then
+  WriteLn('Tasks are still running');
+```
+
+`WaitForAll` does not close admission. Coordinate concurrent producers first,
+or use `Shutdown` to atomically stop admission before draining.
+
 Always call before freeing the pool or any objects whose methods were queued.
 
 ---
@@ -93,7 +112,7 @@ Two distinct error paths exist — handle both:
 ### 1. Queue-full errors (raised by `Queue`)
 
 `EQueueFullException` is raised synchronously on the calling thread when the
-queue stays full after all retry attempts. Catch it **around each `Queue` call**,
+queue stays full until the compatibility timeout expires. Catch it **around each `Queue` call**,
 not around `WaitForAll`.
 
 ```pascal
@@ -108,12 +127,6 @@ except
     WriteLn('Queue full: ', E.Message);
   end;
 end;
-```
-
-The exception message format is:
-
-```text
-Queue is full after N attempts (Capacity: M)
 ```
 
 Always catch by **type** (`EQueueFullException`), not by message string.
@@ -159,6 +172,9 @@ Or assign `OnError` to react the moment a task fails, instead of polling:
 Pool.OnError := @Handler.OnTaskError;
 ```
 
+Exceptions raised by the handler are contained by the pool. They cannot
+terminate a worker or prevent task completion accounting.
+
 ### Full pattern
 
 ```pascal
@@ -195,18 +211,26 @@ property Errors: TStringArray;        // read-only; all captured messages (cappe
 property ErrorCount: Integer;         // read-only; count of messages in Errors
 property OnError: TThreadPoolErrorEvent; // fired (on a worker thread) per failed task
 property WorkQueue: TThreadSafeQueue; // access to queue for monitoring/config
+property State: TThreadPoolState;      // accepting, draining, or stopped
 
-procedure WaitForAll;
+function TryQueue(...; ATimeoutMS: Cardinal): Boolean; // four matching overloads
+procedure WaitForAll; overload;
+function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload;
+procedure Shutdown;
 procedure ClearLastError;
 procedure ClearErrors;                // clears both Errors and LastError
 ```
 
 ---
 
-## Backpressure Configuration
+## Backpressure Configuration compatibility
 
-When the queue load factor exceeds a threshold, `Queue` introduces a delay before
-each retry attempt. This slows the producer instead of failing immediately.
+v0.8.0 replaces load-threshold sleeps with event-driven not-full signalling.
+`TBackpressureConfig` remains available so existing source continues to compile.
+`MaxAttempts` and `HighLoadDelay` determine the compatibility wait used by the
+legacy `Queue` overloads; new code should express its deadline directly with
+`TryQueue(..., TimeoutMS)`. Threshold and low/medium-delay fields are retained
+for source compatibility and no longer introduce sleeps.
 
 ```pascal
 type
@@ -238,15 +262,23 @@ end;
 
 ## Debug Logging
 
-The constant `DEBUG_LOG` at the top of the unit controls verbose output:
+The `DEBUG_LOG` variable controls verbose output:
 
 ```pascal
-const
-  DEBUG_LOG = True;  // set to False to silence all debug output
+DEBUG_LOG := True; // opt in while diagnosing scheduler behaviour
 ```
 
-When enabled, each queue operation and worker event is logged to stdout with a
-timestamp and thread ID. Disable for production use.
+Debug logging is disabled by default so normal workloads and benchmarks do not
+pay for synchronized console output.
+
+---
+
+## Lifecycle (v0.8.0)
+
+`Shutdown` atomically stops admission, lets submissions already in progress
+finish enqueueing, drains all accepted tasks, wakes and joins every worker, and
+sets `State` to `tpsStopped`. It is idempotent and is called automatically by
+the destructor. Queueing after shutdown raises `EThreadPoolShutdown`.
 
 ---
 

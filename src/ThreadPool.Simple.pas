@@ -56,13 +56,21 @@ type
   TSimpleThreadPool = class(TThreadPoolBase)
   private
     FThreads: TThreadList;
-    FWorkItems: TThreadList;
+    FWorkItems: array of TSimpleWorkItem;
+    FQueueHead: Integer;
+    FQueueTail: Integer;
+    FQueueCount: Integer;
+    FQueueLock: TCriticalSection;
     FWorkItemLock: TCriticalSection;
     FWorkItemCount: Integer;
     FWorkItemEvent: TEvent;
-    FErrorEvent: TEvent;
+    FWorkAvailableEvent: TEvent;
     procedure ClearThreads;
     procedure ClearWorkItems;
+    procedure EnqueueWorkItem(AWorkItem: TSimpleWorkItem);
+    function TryDequeueWorkItem(out AWorkItem: TSimpleWorkItem): Boolean;
+    procedure CompleteWorkItem;
+    function IsCurrentWorkerThread: Boolean;
   public
     constructor Create(AThreadCount: Integer = 0); override;
     destructor Destroy; override;
@@ -72,7 +80,17 @@ type
     procedure Queue(AMethod: TThreadMethod); override;
     procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer); override;
     procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer); override;
-    procedure WaitForAll; override;
+    function TryQueue(AProcedure: TThreadProcedure;
+      ATimeoutMS: Cardinal): Boolean; overload; override;
+    function TryQueue(AMethod: TThreadMethod;
+      ATimeoutMS: Cardinal): Boolean; overload; override;
+    function TryQueue(AProcedure: TThreadProcedureIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal): Boolean; overload; override;
+    function TryQueue(AMethod: TThreadMethodIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal): Boolean; overload; override;
+    procedure WaitForAll; overload; override;
+    function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload; override;
+    procedure Shutdown; override;
     function GetThreadCount: Integer; override;
     function GetLastError: string; override;
     property ThreadCount: Integer read GetThreadCount;
@@ -153,47 +171,32 @@ end;
 procedure TSimpleWorkerThread.Execute;
 var
   Pool: TSimpleThreadPool;
-  List: TList;
   WorkItem: TSimpleWorkItem;
 begin
   Pool := TSimpleThreadPool(FThreadPool);
-  
+
   while not Terminated do
   begin
-    // Try to get a work item
-    List := Pool.FWorkItems.LockList;
-    try
-      if List.Count > 0 then
-      begin
-        WorkItem := TSimpleWorkItem(List[0]);
-        List.Delete(0);
-      end
-      else
-        WorkItem := nil;
-    finally
-      Pool.FWorkItems.UnlockList;
-    end;
+    { Workers sleep without polling until submission or shutdown signals them. }
+    Pool.FWorkAvailableEvent.WaitFor(INFINITE);
+    if Terminated then
+      Break;
 
-    // Process work item if we got one
-    if Assigned(WorkItem) then
+    while (not Terminated) and Pool.TryDequeueWorkItem(WorkItem) do
     begin
       try
-        WorkItem.Execute;
-      except
-        on E: Exception do
-        begin
-          // Capture error. SetLastError is thread-safe on its own (base class
-          // locking), and TEvent.SetEvent is thread-safe, so no extra lock is
-          // needed here. Keeping SetLastError outside any subclass lock also
-          // ensures the OnError callback it may fire cannot deadlock.
-          Pool.SetLastError(E.Message);
-          Pool.FErrorEvent.SetEvent;
+        try
+          WorkItem.Execute;
+        except
+          on E: Exception do
+            Pool.SetLastError(E.Message);
         end;
+      finally
+        WorkItem.Free;
+        { Completion accounting is independent of task and callback failures. }
+        Pool.CompleteWorkItem;
       end;
-      WorkItem.Free;
-    end
-    else
-      Sleep(1); // Prevent busy waiting
+    end;
   end;
 end;
 
@@ -217,28 +220,12 @@ begin
 end;
 
 procedure TSimpleWorkItem.Execute;
-var
-  Pool: TSimpleThreadPool;
 begin
-  try
-    // Execute the appropriate work item based on its type
-    case FItemType of
-      witProcedure: if Assigned(FProcedure) then FProcedure;
-      witMethod: if Assigned(FMethod) then FMethod;
-      witProcedureIndex: if Assigned(FProcedureIndex) then FProcedureIndex(FIndex);
-      witMethodIndex: if Assigned(FMethodIndex) then FMethodIndex(FIndex);
-    end;
-  finally
-    // Update work item count and signal completion if necessary
-    Pool := TSimpleThreadPool(FThreadPool);
-    Pool.FWorkItemLock.Enter;
-    try
-      Dec(Pool.FWorkItemCount);
-      if Pool.FWorkItemCount = 0 then
-        Pool.FWorkItemEvent.SetEvent;
-    finally
-      Pool.FWorkItemLock.Leave;
-    end;
+  case FItemType of
+    witProcedure: if Assigned(FProcedure) then FProcedure;
+    witMethod: if Assigned(FMethod) then FMethod;
+    witProcedureIndex: if Assigned(FProcedureIndex) then FProcedureIndex(FIndex);
+    witMethodIndex: if Assigned(FMethodIndex) then FMethodIndex(FIndex);
   end;
 end;
 
@@ -259,16 +246,18 @@ var
   Thread: TSimpleWorkerThread;
 begin
   inherited Create(AThreadCount);
-  
-  // Initialize thread-safe collections and synchronization
+
   FThreads := TThreadList.Create;
-  FWorkItems := TThreadList.Create;
+  FQueueLock := TCriticalSection.Create;
   FWorkItemLock := TCriticalSection.Create;
-  FErrorEvent := TEvent.Create(nil, True, False, '');
+  FWorkAvailableEvent := TEvent.Create(nil, True, False, '');
   FWorkItemEvent := TEvent.Create(nil, True, True, '');
+  SetLength(FWorkItems, 64);
+  FQueueHead := 0;
+  FQueueTail := 0;
+  FQueueCount := 0;
   FWorkItemCount := 0;
 
-  // Create and start worker threads
   for I := 1 to FThreadCount do
   begin
     Thread := TSimpleWorkerThread.Create(Self);
@@ -279,28 +268,120 @@ end;
 
 destructor TSimpleThreadPool.Destroy;
 begin
-  // Only drain outstanding work if the pool was fully constructed. If the
-  // constructor failed partway, FPC still calls this destructor on the
-  // half-built object, so guard against the sync objects being nil.
-  if Assigned(FWorkItemEvent) and Assigned(FErrorEvent) then
-    WaitForAll;  // Ensure all tasks complete before destroying
-
-  FShutdown := True;
-
-  if Assigned(FWorkItems) then
-    ClearWorkItems;
-  if Assigned(FThreads) then
-    ClearThreads;
-
-  // Clean up synchronization objects (each may be nil after a partial
-  // construction, so Free — which is nil-safe — is used throughout).
+  Shutdown;
+  ClearWorkItems;
+  FQueueLock.Free;
   FWorkItemLock.Free;
   FThreads.Free;
-  FWorkItems.Free;
+  FWorkAvailableEvent.Free;
   FWorkItemEvent.Free;
-  FErrorEvent.Free;
-
   inherited Destroy;
+end;
+
+procedure TSimpleThreadPool.EnqueueWorkItem(AWorkItem: TSimpleWorkItem);
+var
+  NewItems: array of TSimpleWorkItem;
+  I, NewCapacity: Integer;
+begin
+  NewItems := nil;
+  FQueueLock.Enter;
+  try
+    if FQueueCount = Length(FWorkItems) then
+    begin
+      NewCapacity := Length(FWorkItems) * 2;
+      if NewCapacity = 0 then
+        NewCapacity := 64;
+      SetLength(NewItems, NewCapacity);
+      for I := 0 to FQueueCount - 1 do
+        NewItems[I] := FWorkItems[(FQueueHead + I) mod Length(FWorkItems)];
+      FWorkItems := NewItems;
+      FQueueHead := 0;
+      FQueueTail := FQueueCount;
+    end;
+
+    FWorkItems[FQueueTail] := AWorkItem;
+    FQueueTail := (FQueueTail + 1) mod Length(FWorkItems);
+    Inc(FQueueCount);
+
+    FWorkItemLock.Enter;
+    try
+      Inc(FWorkItemCount);
+      FWorkItemEvent.ResetEvent;
+    finally
+      FWorkItemLock.Leave;
+    end;
+    FWorkAvailableEvent.SetEvent;
+  finally
+    FQueueLock.Leave;
+  end;
+end;
+
+function TSimpleThreadPool.TryDequeueWorkItem(
+  out AWorkItem: TSimpleWorkItem): Boolean;
+begin
+  FQueueLock.Enter;
+  try
+    Result := FQueueCount > 0;
+    if Result then
+    begin
+      AWorkItem := FWorkItems[FQueueHead];
+      FWorkItems[FQueueHead] := nil;
+      FQueueHead := (FQueueHead + 1) mod Length(FWorkItems);
+      Dec(FQueueCount);
+      if FQueueCount = 0 then
+        FWorkAvailableEvent.ResetEvent;
+    end
+    else
+      AWorkItem := nil;
+  finally
+    FQueueLock.Leave;
+  end;
+end;
+
+procedure TSimpleThreadPool.CompleteWorkItem;
+begin
+  FWorkItemLock.Enter;
+  try
+    Dec(FWorkItemCount);
+    if FWorkItemCount = 0 then
+      FWorkItemEvent.SetEvent;
+  finally
+    FWorkItemLock.Leave;
+  end;
+end;
+
+function TSimpleThreadPool.IsCurrentWorkerThread: Boolean;
+var
+  List: TList;
+  I: Integer;
+begin
+  Result := False;
+  if not Assigned(FThreads) then
+    Exit;
+  List := FThreads.LockList;
+  try
+    for I := 0 to List.Count - 1 do
+      if TThread(List[I]).ThreadID = GetCurrentThreadID then
+        Exit(True);
+  finally
+    FThreads.UnlockList;
+  end;
+end;
+
+procedure TSimpleThreadPool.Shutdown;
+begin
+  if IsCurrentWorkerThread then
+    raise EThreadPoolShutdown.Create('Shutdown cannot be called from a pool worker');
+  if not BeginShutdown then
+    Exit;
+  try
+    if Assigned(FWorkItemEvent) then
+      WaitForAll;
+    if Assigned(FThreads) then
+      ClearThreads;
+  finally
+    FinishShutdown;
+  end;
 end;
 
 procedure TSimpleThreadPool.ClearThreads;
@@ -309,19 +390,16 @@ var
   List: TList;
   I: Integer;
 begin
-  // Signal all threads to terminate
   List := FThreads.LockList;
   try
     for I := 0 to List.Count - 1 do
-    begin
-      Thread := TSimpleWorkerThread(List[I]);
-      Thread.Terminate;
-    end;
+      TSimpleWorkerThread(List[I]).Terminate;
+    if Assigned(FWorkAvailableEvent) then
+      FWorkAvailableEvent.SetEvent;
   finally
     FThreads.UnlockList;
   end;
 
-  // Wait for all threads to finish and clean up
   List := FThreads.LockList;
   try
     for I := 0 to List.Count - 1 do
@@ -338,120 +416,135 @@ end;
 
 procedure TSimpleThreadPool.ClearWorkItems;
 var
-  List: TList;
-  I: Integer;
+  WorkItem: TSimpleWorkItem;
 begin
-  // Clean up any remaining work items
-  List := FWorkItems.LockList;
-  try
-    for I := 0 to List.Count - 1 do
-      TSimpleWorkItem(List[I]).Free;
-    List.Clear;
-  finally
-    FWorkItems.UnlockList;
-  end;
+  if not Assigned(FQueueLock) then
+    Exit;
+  while TryDequeueWorkItem(WorkItem) do
+    WorkItem.Free;
+  SetLength(FWorkItems, 0);
 end;
 
-{ Queue overloads for different types of work items }
-
-procedure TSimpleThreadPool.Queue(AProcedure: TThreadProcedure);
+function TSimpleThreadPool.TryQueue(AProcedure: TThreadProcedure;
+  ATimeoutMS: Cardinal): Boolean;
 var
   WorkItem: TSimpleWorkItem;
 begin
-  if FShutdown then Exit;  // Don't queue if shutting down
-  
-  // Update work item count
-  FWorkItemLock.Enter;
+  BeginQueue;
   try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;  // Reset completion event
+    WorkItem := TSimpleWorkItem.Create(Self);
+    try
+      WorkItem.FProcedure := AProcedure;
+      WorkItem.FItemType := witProcedure;
+      EnqueueWorkItem(WorkItem);
+      WorkItem := nil;
+      Result := True;
+    finally
+      WorkItem.Free;
+    end;
   finally
-    FWorkItemLock.Leave;
+    EndQueue;
   end;
-  
-  // Create and queue work item
-  WorkItem := TSimpleWorkItem.Create(Self);
-  WorkItem.FProcedure := AProcedure;
-  WorkItem.FItemType := witProcedure;
-  
-  FWorkItems.Add(WorkItem);
+end;
+
+function TSimpleThreadPool.TryQueue(AMethod: TThreadMethod;
+  ATimeoutMS: Cardinal): Boolean;
+var
+  WorkItem: TSimpleWorkItem;
+begin
+  BeginQueue;
+  try
+    WorkItem := TSimpleWorkItem.Create(Self);
+    try
+      WorkItem.FMethod := AMethod;
+      WorkItem.FItemType := witMethod;
+      EnqueueWorkItem(WorkItem);
+      WorkItem := nil;
+      Result := True;
+    finally
+      WorkItem.Free;
+    end;
+  finally
+    EndQueue;
+  end;
+end;
+
+function TSimpleThreadPool.TryQueue(AProcedure: TThreadProcedureIndex;
+  AIndex: Integer; ATimeoutMS: Cardinal): Boolean;
+var
+  WorkItem: TSimpleWorkItem;
+begin
+  BeginQueue;
+  try
+    WorkItem := TSimpleWorkItem.Create(Self);
+    try
+      WorkItem.FProcedureIndex := AProcedure;
+      WorkItem.FIndex := AIndex;
+      WorkItem.FItemType := witProcedureIndex;
+      EnqueueWorkItem(WorkItem);
+      WorkItem := nil;
+      Result := True;
+    finally
+      WorkItem.Free;
+    end;
+  finally
+    EndQueue;
+  end;
+end;
+
+function TSimpleThreadPool.TryQueue(AMethod: TThreadMethodIndex;
+  AIndex: Integer; ATimeoutMS: Cardinal): Boolean;
+var
+  WorkItem: TSimpleWorkItem;
+begin
+  BeginQueue;
+  try
+    WorkItem := TSimpleWorkItem.Create(Self);
+    try
+      WorkItem.FMethodIndex := AMethod;
+      WorkItem.FIndex := AIndex;
+      WorkItem.FItemType := witMethodIndex;
+      EnqueueWorkItem(WorkItem);
+      WorkItem := nil;
+      Result := True;
+    finally
+      WorkItem.Free;
+    end;
+  finally
+    EndQueue;
+  end;
+end;
+
+procedure TSimpleThreadPool.Queue(AProcedure: TThreadProcedure);
+begin
+  TryQueue(AProcedure, 0);
 end;
 
 procedure TSimpleThreadPool.Queue(AMethod: TThreadMethod);
-var
-  WorkItem: TSimpleWorkItem;
 begin
-  if FShutdown then Exit;
-  
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  WorkItem := TSimpleWorkItem.Create(Self);
-  WorkItem.FMethod := AMethod;
-  WorkItem.FItemType := witMethod;
-  
-  FWorkItems.Add(WorkItem);
+  TryQueue(AMethod, 0);
 end;
 
-procedure TSimpleThreadPool.Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
-var
-  WorkItem: TSimpleWorkItem;
+procedure TSimpleThreadPool.Queue(AProcedure: TThreadProcedureIndex;
+  AIndex: Integer);
 begin
-  if FShutdown then Exit;
-  
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  WorkItem := TSimpleWorkItem.Create(Self);
-  WorkItem.FProcedureIndex := AProcedure;
-  WorkItem.FIndex := AIndex;
-  WorkItem.FItemType := witProcedureIndex;
-  
-  FWorkItems.Add(WorkItem);
+  TryQueue(AProcedure, AIndex, 0);
 end;
 
-procedure TSimpleThreadPool.Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
-var
-  WorkItem: TSimpleWorkItem;
+procedure TSimpleThreadPool.Queue(AMethod: TThreadMethodIndex;
+  AIndex: Integer);
 begin
-  if FShutdown then Exit;
-  
-  FWorkItemLock.Enter;
-  try
-    Inc(FWorkItemCount);
-    if FWorkItemCount > 0 then
-      FWorkItemEvent.ResetEvent;
-  finally
-    FWorkItemLock.Leave;
-  end;
-  
-  WorkItem := TSimpleWorkItem.Create(Self);
-  WorkItem.FMethodIndex := AMethod;
-  WorkItem.FIndex := AIndex;
-  WorkItem.FItemType := witMethodIndex;
-  
-  FWorkItems.Add(WorkItem);
+  TryQueue(AMethod, AIndex, 0);
 end;
 
 procedure TSimpleThreadPool.WaitForAll;
 begin
-  FWorkItemEvent.WaitFor(INFINITE);  // Wait for all work items to complete
-  // If there was an error, ensure it's fully captured
-  if FErrorEvent.WaitFor(100) = wrSignaled then
-    FErrorEvent.ResetEvent;
+  WaitForAll(THREADPOOL_INFINITE);
+end;
+
+function TSimpleThreadPool.WaitForAll(ATimeoutMS: Cardinal): Boolean;
+begin
+  Result := FWorkItemEvent.WaitFor(ATimeoutMS) = wrSignaled;
 end;
 
 function TSimpleThreadPool.GetThreadCount: Integer;
@@ -467,9 +560,9 @@ end;
 {$ENDREGION}
 
 initialization
-  GlobalThreadPool := TSimpleThreadPool.Create;  // Create global instance
+  GlobalThreadPool := TSimpleThreadPool.Create;
 
 finalization
-  GlobalThreadPool.Free;  // Clean up global instance
+  GlobalThreadPool.Free;
 
 end.
