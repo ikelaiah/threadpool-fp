@@ -8,33 +8,85 @@
         <MainUnitHasCreateFormStatements Value="False"/>
         <MainUnitHasTitleStatement Value="False"/>
         <MainUnitHasScaledStatement Value="False"/>
+        <UseDefaultCompilerOptions Value="True"/>
       </Flags>
+      <SessionStorage Value="InProjectDir"/>
       <Title Value="ThreadPoolBenchmark"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
     </General>
     <BuildModes>
       <Item Name="Default" Default="True"/>
+      <Item Name="Debug">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <PathDelim Value="\"/>
+          <Target>
+            <Filename Value="ThreadPoolBenchmark"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="$(ProjOutDir)"/>
+            <OtherUnitFiles Value="..\src"/>
+            <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <Parsing>
+            <SyntaxOptions>
+              <IncludeAssertionCode Value="True"/>
+            </SyntaxOptions>
+          </Parsing>
+          <CodeGeneration>
+            <Checks>
+              <IOChecks Value="True"/>
+              <RangeChecks Value="True"/>
+              <OverflowChecks Value="True"/>
+              <StackChecks Value="True"/>
+            </Checks>
+            <VerifyObjMethodCallValidity Value="True"/>
+          </CodeGeneration>
+          <Linking>
+            <Debugging>
+              <DebugInfoType Value="dsDwarf3"/>
+              <UseHeaptrc Value="True"/>
+              <TrashVariables Value="True"/>
+            </Debugging>
+          </Linking>
+        </CompilerOptions>
+      </Item>
       <Item Name="Release">
         <CompilerOptions>
           <Version Value="11"/>
           <PathDelim Value="\"/>
-          <Target><Filename Value="ThreadPoolBenchmark"/></Target>
+          <Target>
+            <Filename Value="ThreadPoolBenchmark"/>
+          </Target>
           <SearchPaths>
             <OtherUnitFiles Value="..\src"/>
             <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
             <SmartLinkUnit Value="True"/>
-            <Optimizations><OptimizationLevel Value="3"/></Optimizations>
+            <Optimizations>
+              <OptimizationLevel Value="3"/>
+            </Optimizations>
           </CodeGeneration>
-          <Linking><LinkSmart Value="True"/></Linking>
+          <Linking>
+            <Debugging>
+              <GenerateDebugInfo Value="False"/>
+              <RunWithoutDebug Value="True"/>
+              <StripSymbols Value="True"/>
+            </Debugging>
+            <LinkSmart Value="True"/>
+          </Linking>
         </CompilerOptions>
       </Item>
     </BuildModes>
-    <RequiredPackages>
-      <Item><PackageName Value="FCL"/></Item>
-    </RequiredPackages>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
     <Units>
       <Unit>
         <Filename Value="ThreadPoolBenchmark.lpr"/>
@@ -45,7 +97,9 @@
   <CompilerOptions>
     <Version Value="11"/>
     <PathDelim Value="\"/>
-    <Target><Filename Value="ThreadPoolBenchmark"/></Target>
+    <Target>
+      <Filename Value="ThreadPoolBenchmark"/>
+    </Target>
     <SearchPaths>
       <OtherUnitFiles Value="..\src"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
