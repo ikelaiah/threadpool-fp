@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="600" viewBox="0 0 1800 600" role="img" aria-labelledby="title desc">
+  <title id="title">ThreadPool for Free Pascal</title>
+  <desc id="desc">An ordered task queue splits into four parallel worker lanes and rejoins, above the ThreadPool for Free Pascal project name.</desc>
+
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#020817"/>
+      <stop offset="0.5" stop-color="#07152f"/>
+      <stop offset="1" stop-color="#020817"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="38%" r="58%">
+      <stop offset="0" stop-color="#123b78" stop-opacity="0.42"/>
+      <stop offset="0.58" stop-color="#071b3c" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#020817" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#fb923c"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#14b8a6"/>
+    </linearGradient>
+    <linearGradient id="poolText" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#1684f8"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="smallGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1800" height="600" rx="24" fill="url(#background)"/>
+  <rect width="1800" height="600" rx="24" fill="url(#halo)"/>
+
+  <!-- Quiet circuit-board traces at the edges. -->
+  <g fill="none" stroke="#1d4f91" stroke-width="3" opacity="0.55">
+    <path d="M0 130h86l28-28h124l32 32h52"/>
+    <path d="M0 174h148l24-24h98"/>
+    <path d="M0 218h116l36 36h124"/>
+    <path d="M1800 130h-86l-28-28h-124l-32 32h-52"/>
+    <path d="M1800 174h-148l-24-24h-98"/>
+    <path d="M1800 218h-116l-36 36h-124"/>
+  </g>
+  <g fill="#38bdf8" opacity="0.72">
+    <circle cx="114" cy="102" r="6"/><circle cx="172" cy="150" r="6"/><circle cx="276" cy="254" r="6"/>
+    <circle cx="1686" cy="102" r="6"/><circle cx="1628" cy="150" r="6"/><circle cx="1524" cy="254" r="6"/>
+  </g>
+  <g fill="#2563eb" opacity="0.5">
+    <rect x="108" y="276" width="12" height="12" rx="2"/><rect x="130" y="276" width="12" height="12" rx="2"/><rect x="152" y="276" width="12" height="12" rx="2"/>
+    <rect x="1636" y="276" width="12" height="12" rx="2"/><rect x="1658" y="276" width="12" height="12" rx="2"/><rect x="1680" y="276" width="12" height="12" rx="2"/>
+  </g>
+
+  <!-- Input task queue. -->
+  <g>
+    <path d="M210 180h108" fill="none" stroke="#2388ff" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="210" cy="180" r="14" fill="#2563eb" filter="url(#smallGlow)"/>
+    <circle cx="210" cy="180" r="6" fill="#67e8f9"/>
+    <path d="M318 127h410l52 53-52 53H318q-22 0-22-22v-62q0-22 22-22z" fill="#06162e" stroke="#2779ff" stroke-width="8" stroke-linejoin="round"/>
+    <g fill="url(#blue)">
+      <rect x="338" y="151" width="52" height="58" rx="7"/>
+      <rect x="407" y="151" width="52" height="58" rx="7"/>
+      <rect x="476" y="151" width="52" height="58" rx="7"/>
+      <rect x="545" y="151" width="52" height="58" rx="7"/>
+      <rect x="614" y="151" width="52" height="58" rx="7"/>
+      <rect x="683" y="151" width="52" height="58" rx="7"/>
+    </g>
+    <path d="M780 180h48" fill="none" stroke="#2388ff" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <!-- Scheduler core. -->
+  <g filter="url(#softGlow)">
+    <path d="M852 120h76l38 60-38 60h-76l-38-60z" fill="#071a35" stroke="#38a9ff" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M902 137l-35 54h25l-12 44 43-66h-26z" fill="url(#amber)"/>
+  </g>
+
+  <!-- Four parallel worker lanes. -->
+  <g fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M966 180c48 0 64-98 132-98h326c48 0 60 98 118 98" stroke="url(#blue)"/>
+    <path d="M966 180c48 0 66-34 132-34h326c50 0 62 34 118 34" stroke="url(#violet)"/>
+    <path d="M966 180c48 0 66 34 132 34h326c50 0 62-34 118-34" stroke="url(#amber)"/>
+    <path d="M966 180c48 0 64 98 132 98h326c48 0 60-98 118-98" stroke="url(#emerald)"/>
+  </g>
+  <g>
+    <g fill="url(#blue)">
+      <rect x="1125" y="65" width="48" height="34" rx="5"/><rect x="1186" y="65" width="48" height="34" rx="5"/><rect x="1247" y="65" width="48" height="34" rx="5"/>
+      <circle cx="1352" cy="82" r="14"/><circle cx="1352" cy="82" r="6" fill="#7dd3fc"/>
+    </g>
+    <g fill="url(#violet)">
+      <rect x="1125" y="129" width="48" height="34" rx="5"/><rect x="1186" y="129" width="48" height="34" rx="5"/><rect x="1247" y="129" width="48" height="34" rx="5"/>
+      <circle cx="1352" cy="146" r="14"/><circle cx="1352" cy="146" r="6" fill="#c4b5fd"/>
+    </g>
+    <g fill="url(#amber)">
+      <rect x="1125" y="197" width="48" height="34" rx="5"/><rect x="1186" y="197" width="48" height="34" rx="5"/><rect x="1247" y="197" width="48" height="34" rx="5"/>
+      <circle cx="1352" cy="214" r="14"/><circle cx="1352" cy="214" r="6" fill="#fde68a"/>
+    </g>
+    <g fill="url(#emerald)">
+      <rect x="1125" y="261" width="48" height="34" rx="5"/><rect x="1186" y="261" width="48" height="34" rx="5"/><rect x="1247" y="261" width="48" height="34" rx="5"/>
+      <circle cx="1352" cy="278" r="14"/><circle cx="1352" cy="278" r="6" fill="#99f6e4"/>
+    </g>
+  </g>
+
+  <!-- Rejoined output. -->
+  <g>
+    <path d="M1542 180h76" fill="none" stroke="#2388ff" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="1618" cy="180" r="14" fill="#2563eb" filter="url(#smallGlow)"/>
+    <circle cx="1618" cy="180" r="6" fill="#67e8f9"/>
+  </g>
+
+  <!-- Project wordmark. -->
+  <text x="900" y="430" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="112" font-weight="800" letter-spacing="2">
+    <tspan fill="#f8fafc">THREAD</tspan><tspan fill="url(#poolText)">POOL</tspan>
+  </text>
+  <text x="900" y="508" text-anchor="middle" fill="#60a5fa" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="36" font-weight="700" letter-spacing="15">FOR FREE PASCAL</text>
+</svg>
