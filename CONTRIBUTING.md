@@ -13,7 +13,7 @@ sizes are welcome — bug reports, documentation fixes, new examples, and code.
 ## Prerequisites
 
 - Free Pascal 3.2.2 or later
-- Lazarus 3.6.0 or later (provides `lazbuild`)
+- Lazarus 4.0 or later (provides `lazbuild`)
 - No external dependencies
 
 ## Building
@@ -40,8 +40,8 @@ lazbuild tests/TestRunner.lpi
 ./tests/TestRunner -a -p --format=plain
 ```
 
-All tests should pass before you submit a change. The full suite can take a
-few minutes to run because some tests exercise high task volumes.
+All tests should pass before you submit a change. The full suite normally takes
+only a few seconds, although timing varies by machine.
 
 CI runs the package build, the test suite, and all examples on Linux and
 Windows for every pull request — please make sure your branch is green.

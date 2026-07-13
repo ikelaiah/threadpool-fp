@@ -36,6 +36,9 @@ type
     procedure IncrementCounterWithIndex(AIndex: Integer);
     // Thread-safe OnError handler used by Test23.
     procedure HandlePoolError(const AMessage: string);
+    procedure HandlePoolErrorAndRaise(const AMessage: string);
+    procedure SlowTask;
+    procedure ShutdownFromWorker;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -77,6 +80,15 @@ type
     procedure Test24_ClearErrorsResetsCollection;
     procedure Test25_ErrorCollectionIsCapped;
     procedure Test26_LastErrorStillWorks;
+
+    // Lifecycle, timeout, and callback safety (v0.8.0)
+    procedure Test27_WaitTimeout;
+    procedure Test28_ShutdownDrainsAndStops;
+    procedure Test29_QueueAfterShutdownRaises;
+    procedure Test30_OnErrorExceptionIsContained;
+    procedure Test31_TryQueueCompatibility;
+    procedure Test32_ConcurrentQueueAndShutdown;
+    procedure Test33_WorkerShutdownCannotDeadlock;
   end;
 
 var
@@ -87,6 +99,7 @@ procedure GlobalIncrementCounter;
 procedure GlobalIncrementCounterWithIndex(AIndex: Integer);
 procedure RaiseTestException;
 procedure RaiseAnotherException;
+procedure RaiseFastException;
 
 implementation
 
@@ -114,6 +127,11 @@ procedure RaiseAnotherException;
 begin
   Sleep(50);
   raise TTestException.Create('Another exception message');
+end;
+
+procedure RaiseFastException;
+begin
+  raise TTestException.Create('Fast exception');
 end;
 
 { TTestObject }
@@ -354,6 +372,21 @@ type
     procedure Execute; override;
   end;
 
+  TLifecycleQueueThread = class(TThread)
+  private
+    FPool: TSimpleThreadPool;
+    FStartEvent: TEvent;
+    FFirstQueuedEvent: TEvent;
+    FAccepted: Integer;
+    FUnexpectedError: string;
+  public
+    constructor Create(APool: TSimpleThreadPool; AStartEvent,
+      AFirstQueuedEvent: TEvent);
+    procedure Execute; override;
+    property Accepted: Integer read FAccepted;
+    property UnexpectedError: string read FUnexpectedError;
+  end;
+
 constructor TTestQueueThread.Create(APool: TSimpleThreadPool; AStartEvent: TEvent);
 begin
   inherited Create(True);
@@ -369,6 +402,40 @@ begin
   FStartEvent.WaitFor(INFINITE);
   for i := 1 to 100 do
     FPool.Queue(@GlobalIncrementCounter);
+end;
+
+constructor TLifecycleQueueThread.Create(APool: TSimpleThreadPool;
+  AStartEvent, AFirstQueuedEvent: TEvent);
+begin
+  inherited Create(True);
+  FPool := APool;
+  FStartEvent := AStartEvent;
+  FFirstQueuedEvent := AFirstQueuedEvent;
+  FreeOnTerminate := False;
+end;
+
+procedure TLifecycleQueueThread.Execute;
+var
+  I: Integer;
+begin
+  FStartEvent.WaitFor(INFINITE);
+  try
+    for I := 1 to 10000 do
+    begin
+      try
+        FPool.Queue(@GlobalIncrementCounter);
+        Inc(FAccepted);
+        if FAccepted = 1 then
+          FFirstQueuedEvent.SetEvent;
+      except
+        on E: EThreadPoolShutdown do
+          Break;
+      end;
+    end;
+  except
+    on E: Exception do
+      FUnexpectedError := E.ClassName + ': ' + E.Message;
+  end;
 end;
 
 procedure TSimpleThreadPoolTests.Test13_ConcurrentQueueAccess;
@@ -570,7 +637,7 @@ begin
   // ErrorCount must never exceed MAX_STORED_ERRORS regardless of how many fail.
   FThreadPool.ClearErrors;
   for I := 1 to MAX_STORED_ERRORS + 250 do
-    FThreadPool.Queue(@RaiseAnotherException);
+    FThreadPool.Queue(@RaiseFastException);
   FThreadPool.WaitForAll;
 
   AssertEquals('Error collection should be capped at MAX_STORED_ERRORS',
@@ -595,6 +662,127 @@ procedure TSimpleThreadPoolTests.HandlePoolError(const AMessage: string);
 begin
   // Fired from a worker thread — increment atomically.
   InterlockedIncrement(FOnErrorCount);
+end;
+
+procedure TSimpleThreadPoolTests.HandlePoolErrorAndRaise(
+  const AMessage: string);
+begin
+  InterlockedIncrement(FOnErrorCount);
+  raise Exception.Create('OnError handler failure');
+end;
+
+procedure TSimpleThreadPoolTests.SlowTask;
+begin
+  Sleep(100);
+end;
+
+procedure TSimpleThreadPoolTests.ShutdownFromWorker;
+begin
+  FThreadPool.Shutdown;
+end;
+
+procedure TSimpleThreadPoolTests.Test27_WaitTimeout;
+begin
+  FThreadPool.Queue(@SlowTask);
+  AssertFalse('Short timeout should report unfinished work',
+    FThreadPool.WaitForAll(5));
+  AssertTrue('Long timeout should observe completion',
+    FThreadPool.WaitForAll(2000));
+end;
+
+procedure TSimpleThreadPoolTests.Test28_ShutdownDrainsAndStops;
+var
+  I: Integer;
+begin
+  FCounter := 0;
+  for I := 1 to 200 do
+    FThreadPool.Queue(@GlobalIncrementCounter);
+  FThreadPool.Shutdown;
+  AssertEquals('Shutdown must drain every accepted task', 200, FCounter);
+  AssertEquals('Pool must become stopped', Ord(tpsStopped),
+    Ord(FThreadPool.State));
+  AssertTrue('A stopped drained pool is idle', FThreadPool.WaitForAll(0));
+end;
+
+procedure TSimpleThreadPoolTests.Test29_QueueAfterShutdownRaises;
+var
+  Raised: Boolean;
+begin
+  FThreadPool.Shutdown;
+  Raised := False;
+  try
+    FThreadPool.Queue(@GlobalIncrementCounter);
+  except
+    on E: EThreadPoolShutdown do
+      Raised := True;
+  end;
+  AssertTrue('Queue after shutdown must raise EThreadPoolShutdown', Raised);
+end;
+
+procedure TSimpleThreadPoolTests.Test30_OnErrorExceptionIsContained;
+begin
+  FOnErrorCount := 0;
+  FThreadPool.OnError := @HandlePoolErrorAndRaise;
+  try
+    FThreadPool.Queue(@RaiseFastException);
+    AssertTrue('Failing task should still complete',
+      FThreadPool.WaitForAll(2000));
+    FThreadPool.Queue(@GlobalIncrementCounter);
+    AssertTrue('Worker pool must remain usable after callback exception',
+      FThreadPool.WaitForAll(2000));
+    AssertEquals('Callback should have run once', 1, FOnErrorCount);
+  finally
+    FThreadPool.OnError := nil;
+  end;
+end;
+
+procedure TSimpleThreadPoolTests.Test31_TryQueueCompatibility;
+begin
+  FCounter := 0;
+  AssertTrue('Unbounded Simple pool should accept TryQueue immediately',
+    FThreadPool.TryQueue(@GlobalIncrementCounter, 0));
+  FThreadPool.WaitForAll;
+  AssertEquals('TryQueue task should execute', 1, FCounter);
+end;
+
+procedure TSimpleThreadPoolTests.Test32_ConcurrentQueueAndShutdown;
+var
+  Submitter: TLifecycleQueueThread;
+  StartEvent, FirstQueuedEvent: TEvent;
+begin
+  FCounter := 0;
+  StartEvent := TEvent.Create(nil, True, False, '');
+  FirstQueuedEvent := TEvent.Create(nil, True, False, '');
+  Submitter := TLifecycleQueueThread.Create(FThreadPool, StartEvent,
+    FirstQueuedEvent);
+  try
+    Submitter.Start;
+    StartEvent.SetEvent;
+    AssertEquals('Submitter should queue at least one task', Ord(wrSignaled),
+      Ord(FirstQueuedEvent.WaitFor(2000)));
+    FThreadPool.Shutdown;
+    Submitter.WaitFor;
+    AssertEquals('Admission race must not raise an unexpected error', '',
+      Submitter.UnexpectedError);
+    AssertEquals('Every accepted task must be drained', Submitter.Accepted,
+      FCounter);
+  finally
+    Submitter.Free;
+    FirstQueuedEvent.Free;
+    StartEvent.Free;
+  end;
+end;
+
+procedure TSimpleThreadPoolTests.Test33_WorkerShutdownCannotDeadlock;
+begin
+  FThreadPool.ClearErrors;
+  FThreadPool.Queue(@ShutdownFromWorker);
+  AssertTrue('Worker shutdown attempt must finish instead of self-deadlocking',
+    FThreadPool.WaitForAll(2000));
+  AssertEquals('Rejected worker shutdown must leave the pool accepting',
+    Ord(tpsAccepting), Ord(FThreadPool.State));
+  AssertTrue('Rejected worker shutdown should be captured as a task error',
+    Pos('cannot be called from a pool worker', FThreadPool.LastError) > 0);
 end;
 
 procedure TSimpleThreadPoolTests.IncrementCounter;

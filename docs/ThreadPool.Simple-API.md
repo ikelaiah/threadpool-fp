@@ -29,6 +29,19 @@ GlobalThreadPool.Queue(@MyProcedure);
 GlobalThreadPool.WaitForAll;
 ```
 
+The timeout overload returns `False` if work remains after the requested number
+of milliseconds:
+
+```pascal
+if not GlobalThreadPool.WaitForAll(250) then
+  WriteLn('Still running');
+```
+
+`0` is an immediate check. `THREADPOOL_INFINITE` waits indefinitely.
+
+`WaitForAll` does not close admission. Coordinate concurrent producers first,
+or use `Shutdown` to atomically stop admission before draining.
+
 ### TSimpleThreadPool
 
 A manually managed pool for when you need explicit control over thread count or lifetime.
@@ -162,15 +175,37 @@ type
 
 procedure TMyHandler.OnTaskError(const AMessage: string);
 begin
-  // NOTE: called from a worker thread. Keep it short and thread-safe;
-  // synchronize if you touch the UI or shared state.
+  // NOTE: called synchronously from a worker thread. Keep it short, bounded,
+  // and thread-safe; synchronize if you touch the UI or shared state.
   Log('task failed: ' + AMessage);
 end;
 
 Pool.OnError := @Handler.OnTaskError;
 ```
 
-### Properties
+Exceptions raised by the handler are contained by the pool. They cannot
+terminate a worker or prevent task completion accounting.
+
+Containment does not limit callback execution time. A task or `OnError` handler
+that blocks continues to occupy its worker, and can delay `WaitForAll` and
+`Shutdown`. Apply an application-level timeout or cancellation mechanism to
+operations that may block.
+
+## Lifecycle and submission timeouts (v0.8.0)
+
+`TSimpleThreadPool` is unbounded, so `TryQueue` normally succeeds immediately;
+the timeout argument exists so code can use either pool through `IThreadPool`.
+After shutdown begins, `Queue` and `TryQueue` raise `EThreadPoolShutdown`.
+
+```pascal
+Pool.TryQueue(@MyProcedure, 0);
+Pool.Shutdown; // stop admission, drain accepted work, join workers
+```
+
+`State` progresses once from `tpsAccepting` to `tpsDraining` to `tpsStopped`.
+`Shutdown` is idempotent and destruction calls it automatically.
+
+## Properties
 
 ```pascal
 property LastError: string;            // Raw message of the most recent worker exception
@@ -178,16 +213,20 @@ property Errors: TStringArray;         // All captured messages (oldest first, c
 property ErrorCount: Integer;          // Number of messages currently in Errors
 property OnError: TThreadPoolErrorEvent; // Fired (on a worker thread) per failed task
 property ThreadCount: Integer;         // Number of worker threads (read-only)
+property State: TThreadPoolState;       // Accepting, draining, or stopped
 ```
 
-### Methods
+## Methods
 
 ```pascal
 procedure Queue(AProcedure: TThreadProcedure);
 procedure Queue(AMethod: TThreadMethod);
 procedure Queue(AProcedure: TThreadProcedureIndex; AIndex: Integer);
 procedure Queue(AMethod: TThreadMethodIndex; AIndex: Integer);
-procedure WaitForAll;
+function TryQueue(...; ATimeoutMS: Cardinal): Boolean; // four matching overloads
+procedure WaitForAll; overload;
+function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload;
+procedure Shutdown;
 procedure ClearLastError;
 procedure ClearErrors;  // clears both Errors and LastError
 ```

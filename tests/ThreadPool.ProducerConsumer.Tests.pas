@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, fpcunit, testregistry, ThreadPool.Types,
-  ThreadPool.ProducerConsumer, syncobjs, DateUtils, Math;
+  ThreadPool.ProducerConsumer, syncobjs, DateUtils;
 
 type
   { TTestProducerConsumerThreadPool }
@@ -17,6 +17,9 @@ type
     FSharedLock: TCriticalSection;
     FTestResults: TStringList;
     FOnErrorCount: Integer;
+    FGateEvent: TEvent;
+    FAllStartedEvent: TEvent;
+    FStartedCount: Integer;
 
     procedure LogTest(const Msg: string);
     procedure IncrementCounter;
@@ -28,6 +31,9 @@ type
     procedure RaiseTestError;
     procedure RaiseOtherError;
     procedure HandlePoolError(const AMessage: string);
+    procedure HandlePoolErrorAndRaise(const AMessage: string);
+    procedure GateTask;
+    procedure ShutdownFromWorker;
     procedure SleepTask;
     function MeasureQueueTime(const TaskCount: Integer): Int64;
   protected
@@ -47,12 +53,38 @@ type
     procedure Test11_BackpressureConfig;
     procedure Test12_LoadFactorCalculation;
     procedure Test13_BackpressureBehavior;
-    procedure Test14_AdaptivePerformance;
+    procedure Test14_ParallelScaling;
 
     // Error-collection API (v0.7.0)
     procedure Test15_ErrorsCollectionCapturesAll;
     procedure Test16_OnErrorCallbackFires;
     procedure Test17_ClearErrorsResetsCollection;
+
+    // Lifecycle, timeout, and callback safety (v0.8.0)
+    procedure Test18_WaitTimeout;
+    procedure Test19_ShutdownDrainsAndStops;
+    procedure Test20_QueueAfterShutdownRaises;
+    procedure Test21_OnErrorExceptionIsContained;
+    procedure Test22_TryQueueTimeoutWhenFull;
+    procedure Test23_ConcurrentQueueAndShutdown;
+    procedure Test24_InvalidQueueSizeRejected;
+    procedure Test25_WorkerShutdownCannotDeadlock;
+  end;
+
+  TProducerLifecycleQueueThread = class(TThread)
+  private
+    FPool: TProducerConsumerThreadPool;
+    FStartEvent: TEvent;
+    FFirstQueuedEvent: TEvent;
+    FTask: TThreadMethod;
+    FAccepted: Integer;
+    FUnexpectedError: string;
+  public
+    constructor Create(APool: TProducerConsumerThreadPool; ATask: TThreadMethod;
+      AStartEvent, AFirstQueuedEvent: TEvent);
+    procedure Execute; override;
+    property Accepted: Integer read FAccepted;
+    property UnexpectedError: string read FUnexpectedError;
   end;
 
 implementation
@@ -60,7 +92,42 @@ implementation
 const
   TASK_COUNT = 100;
   PARALLEL_TASKS = 1000;
-  STRESS_TEST_TASKS = 2048;
+
+constructor TProducerLifecycleQueueThread.Create(
+  APool: TProducerConsumerThreadPool; ATask: TThreadMethod;
+  AStartEvent, AFirstQueuedEvent: TEvent);
+begin
+  inherited Create(True);
+  FPool := APool;
+  FTask := ATask;
+  FStartEvent := AStartEvent;
+  FFirstQueuedEvent := AFirstQueuedEvent;
+  FreeOnTerminate := False;
+end;
+
+procedure TProducerLifecycleQueueThread.Execute;
+var
+  I: Integer;
+begin
+  FStartEvent.WaitFor(INFINITE);
+  try
+    for I := 1 to 10000 do
+    begin
+      try
+        FPool.Queue(FTask);
+        Inc(FAccepted);
+        if FAccepted = 1 then
+          FFirstQueuedEvent.SetEvent;
+      except
+        on E: EThreadPoolShutdown do
+          Break;
+      end;
+    end;
+  except
+    on E: Exception do
+      FUnexpectedError := E.ClassName + ': ' + E.Message;
+  end;
+end;
 
 { TTestProducerConsumerThreadPool }
 
@@ -76,6 +143,9 @@ begin
   FSharedCounter := 0;
   FSharedLock := TCriticalSection.Create;
   FTestResults := TStringList.Create;
+  FGateEvent := TEvent.Create(nil, True, False, '');
+  FAllStartedEvent := TEvent.Create(nil, True, False, '');
+  FStartedCount := 0;
   LogTest('Test setup complete');
 end;
 
@@ -83,6 +153,8 @@ procedure TTestProducerConsumerThreadPool.TearDown;
 begin
   LogTest('Tearing down test...');
   FThreadPool.Free;
+  FAllStartedEvent.Free;
+  FGateEvent.Free;
   FSharedLock.Free;
   FTestResults.Free;
   LogTest('Test teardown complete');
@@ -132,7 +204,7 @@ end;
 
 procedure TTestProducerConsumerThreadPool.LongTask;
 begin
-  Sleep(5000);
+  Sleep(250);
 end;
 
 procedure TTestProducerConsumerThreadPool.SlowTask;
@@ -154,6 +226,25 @@ procedure TTestProducerConsumerThreadPool.HandlePoolError(const AMessage: string
 begin
   // Fired from a worker thread — increment atomically.
   InterlockedIncrement(FOnErrorCount);
+end;
+
+procedure TTestProducerConsumerThreadPool.HandlePoolErrorAndRaise(
+  const AMessage: string);
+begin
+  InterlockedIncrement(FOnErrorCount);
+  raise Exception.Create('OnError handler failure');
+end;
+
+procedure TTestProducerConsumerThreadPool.GateTask;
+begin
+  if InterlockedIncrement(FStartedCount) = 4 then
+    FAllStartedEvent.SetEvent;
+  FGateEvent.WaitFor(INFINITE);
+end;
+
+procedure TTestProducerConsumerThreadPool.ShutdownFromWorker;
+begin
+  FThreadPool.Shutdown;
 end;
 
 procedure TTestProducerConsumerThreadPool.SleepTask;
@@ -286,16 +377,7 @@ begin
   LogTest('Test07_ParallelExecution finished');
 end;
 
-{
-  Test08_QueueFullBehavior  
- 
-  Previously, Test08 expected an exception. With adaptive backpressure, it 
-  should instead slow down rather than fail.
-  
-  Also, Since we now have two different but valid error messages 
-  ("Queue is full" and "Queue is full after maximum attempts"), the assert 
-  in Test08 must accept either message.
-}
+{ Legacy Queue remains exception-based when its bounded wait expires. }
 procedure TTestProducerConsumerThreadPool.Test08_QueueFullBehavior;
 const
   QUEUE_SIZE = 2;
@@ -455,61 +537,41 @@ end;
 
 procedure TTestProducerConsumerThreadPool.Test13_BackpressureBehavior;
 var
+  Pool: TProducerConsumerThreadPool;
   StartTime: TDateTime;
   ElapsedMS: Int64;
   I: Integer;
-  Config: TBackpressureConfig;
 begin
   LogTest('Test13_BackpressureBehavior starting...');
-  
-  // Configure more aggressive backpressure for testing
-  Config := FThreadPool.WorkQueue.BackpressureConfig;
-  Config.LowLoadThreshold := 0.3;
-  Config.LowLoadDelay := 50;  // Increased delay
-  Config.HighLoadThreshold := 0.7;
-  Config.HighLoadDelay := 100; // Increased delay
-  FThreadPool.WorkQueue.BackpressureConfig := Config;
-  
-  // Measure time with high load
-  StartTime := Now;
-  for I := 1 to 500 do // More tasks
-    FThreadPool.Queue(@SleepTask);
-  ElapsedMS := MilliSecondsBetween(Now, StartTime);
-  
-  // Should have significant delay due to backpressure
-  AssertTrue('High load should trigger backpressure', 
-    ElapsedMS > Config.HighLoadDelay);
-    
-  LogTest(Format('Elapsed time under load: %d ms', [ElapsedMS]));
-  FThreadPool.WaitForAll;
+
+  { Fill every worker and the single queue slot. Event-driven backpressure
+    should block only because the queue is actually full, then time out. }
+  FGateEvent.ResetEvent;
+  FAllStartedEvent.ResetEvent;
+  FStartedCount := 0;
+  Pool := TProducerConsumerThreadPool.Create(4, 1);
+  try
+    for I := 1 to 4 do
+      Pool.Queue(@GateTask);
+    AssertEquals('All workers should start their gate task', Ord(wrSignaled),
+      Ord(FAllStartedEvent.WaitFor(2000)));
+    Pool.Queue(@GateTask); // occupies the only queue slot
+
+    StartTime := Now;
+    AssertFalse('TryQueue should time out while the queue remains full',
+      Pool.TryQueue(@GateTask, 50));
+    ElapsedMS := MilliSecondsBetween(Now, StartTime);
+    AssertTrue('Full-queue wait should honour its timeout', ElapsedMS >= 40);
+  finally
+    FGateEvent.SetEvent;
+    Pool.WaitForAll;
+    Pool.Free;
+  end;
   LogTest('Test13_BackpressureBehavior finished');
 end;
 
-{
-  Test14_AdaptivePerformance evaluates the thread pool's ability to maintain efficient performance 
-  under varying load conditions. The test performs the following steps:
-  
-  1. **Configuration**: It starts by disabling backpressure to ensure that delays introduced by 
-     backpressure do not affect the measurement of task processing times.
-  
-  2. **Low Load Test**: The test queues a single task (`LOW_LOAD_TASKS`) and measures the time 
-     taken to complete it. This establishes a baseline for the thread pool's performance under 
-     minimal load.
-  
-  3. **High Load Test**: It then queues a large number of tasks (`HIGH_LOAD_TASKS`) and measures 
-     the time taken to process all of them. This simulates a high-load scenario to assess how 
-     well the thread pool scales with increased workload.
-  
-  4. **Performance Analysis**: The test calculates the normalized time per task for both low 
-     and high load scenarios. By computing the ratio of normalized low load time to high load 
-     time, it determines the slowdown factor, which indicates how much the performance degrades 
-     under high load.
-  
-  The purpose of this test is to ensure that the thread pool can adapt to different levels of 
-  workload without significant performance penalties, thereby validating its scalability and 
-  robustness in handling varying task loads.
-}
-procedure TTestProducerConsumerThreadPool.Test14_AdaptivePerformance;
+{ Verify that independent tasks scale across the fixed worker set. }
+procedure TTestProducerConsumerThreadPool.Test14_ParallelScaling;
 const
   LOW_LOAD_TASKS = 1;     // Single task
   HIGH_LOAD_TASKS = 32;   // Many more tasks
@@ -521,17 +583,9 @@ var
   NormalizedLowTime: Double;
   NormalizedHighTime: Double;
   Ratio: Double;
-  Config: TBackpressureConfig;
 begin
-  LogTest('Test14_AdaptivePerformance starting...');
+  LogTest('Test14_ParallelScaling starting...');
   LogTest(Format('Thread count: %d', [FThreadPool.ThreadCount]));
-  
-  // Disable backpressure for cleaner measurements
-  Config := FThreadPool.WorkQueue.BackpressureConfig;
-  Config.LowLoadDelay := 0;
-  Config.MediumLoadDelay := 0;
-  Config.HighLoadDelay := 0;
-  FThreadPool.WorkQueue.BackpressureConfig := Config;
   
   // Measure low load (single task)
   LogTest('Starting low load test...');
@@ -567,7 +621,7 @@ begin
 
   AssertTrue('Low load should be proportionally faster', Ratio > 1.5);
 
-  LogTest('Test14_AdaptivePerformance finished');
+  LogTest('Test14_ParallelScaling finished');
 end;
 
 procedure TTestProducerConsumerThreadPool.Test15_ErrorsCollectionCapturesAll;
@@ -626,6 +680,145 @@ begin
   AssertEquals('ClearErrors should empty the collection', 0, FThreadPool.ErrorCount);
   AssertEquals('ClearErrors should also clear LastError', '', FThreadPool.LastError);
   LogTest('Test17_ClearErrorsResetsCollection finished');
+end;
+
+procedure TTestProducerConsumerThreadPool.Test18_WaitTimeout;
+begin
+  FThreadPool.Queue(@SleepTask);
+  AssertFalse('Short timeout should report unfinished work',
+    FThreadPool.WaitForAll(5));
+  AssertTrue('Long timeout should observe completion',
+    FThreadPool.WaitForAll(2000));
+end;
+
+procedure TTestProducerConsumerThreadPool.Test19_ShutdownDrainsAndStops;
+var
+  I: Integer;
+begin
+  FSharedCounter := 0;
+  for I := 1 to 200 do
+    FThreadPool.Queue(@IncrementCounter);
+  FThreadPool.Shutdown;
+  AssertEquals('Shutdown must drain every accepted task', 200, FSharedCounter);
+  AssertEquals('Pool must become stopped', Ord(tpsStopped),
+    Ord(FThreadPool.State));
+  AssertTrue('A stopped drained pool is idle', FThreadPool.WaitForAll(0));
+end;
+
+procedure TTestProducerConsumerThreadPool.Test20_QueueAfterShutdownRaises;
+var
+  Raised: Boolean;
+begin
+  FThreadPool.Shutdown;
+  Raised := False;
+  try
+    FThreadPool.Queue(@IncrementCounter);
+  except
+    on E: EThreadPoolShutdown do
+      Raised := True;
+  end;
+  AssertTrue('Queue after shutdown must raise EThreadPoolShutdown', Raised);
+end;
+
+procedure TTestProducerConsumerThreadPool.Test21_OnErrorExceptionIsContained;
+begin
+  FOnErrorCount := 0;
+  FThreadPool.OnError := @HandlePoolErrorAndRaise;
+  try
+    FThreadPool.Queue(@RaiseTestError);
+    AssertTrue('Failing task should still complete',
+      FThreadPool.WaitForAll(2000));
+    FThreadPool.Queue(@IncrementCounter);
+    AssertTrue('Worker pool must remain usable after callback exception',
+      FThreadPool.WaitForAll(2000));
+    AssertEquals('Callback should have run once', 1, FOnErrorCount);
+  finally
+    FThreadPool.OnError := nil;
+  end;
+end;
+
+procedure TTestProducerConsumerThreadPool.Test22_TryQueueTimeoutWhenFull;
+var
+  Pool: TProducerConsumerThreadPool;
+  I: Integer;
+begin
+  FGateEvent.ResetEvent;
+  FAllStartedEvent.ResetEvent;
+  FStartedCount := 0;
+  Pool := TProducerConsumerThreadPool.Create(4, 1);
+  try
+    for I := 1 to 4 do
+      Pool.Queue(@GateTask);
+    AssertEquals('All workers should start their gate task', Ord(wrSignaled),
+      Ord(FAllStartedEvent.WaitFor(2000)));
+    Pool.Queue(@GateTask);
+    AssertFalse('A zero-timeout submission should fail immediately when full',
+      Pool.TryQueue(@GateTask, 0));
+  finally
+    FGateEvent.SetEvent;
+    Pool.WaitForAll;
+    Pool.Free;
+  end;
+end;
+
+procedure TTestProducerConsumerThreadPool.Test23_ConcurrentQueueAndShutdown;
+var
+  Submitter: TProducerLifecycleQueueThread;
+  StartEvent, FirstQueuedEvent: TEvent;
+begin
+  FSharedCounter := 0;
+  StartEvent := TEvent.Create(nil, True, False, '');
+  FirstQueuedEvent := TEvent.Create(nil, True, False, '');
+  Submitter := TProducerLifecycleQueueThread.Create(FThreadPool,
+    @IncrementCounter, StartEvent, FirstQueuedEvent);
+  try
+    Submitter.Start;
+    StartEvent.SetEvent;
+    AssertEquals('Submitter should queue at least one task', Ord(wrSignaled),
+      Ord(FirstQueuedEvent.WaitFor(2000)));
+    FThreadPool.Shutdown;
+    Submitter.WaitFor;
+    AssertEquals('Admission race must not raise an unexpected error', '',
+      Submitter.UnexpectedError);
+    AssertEquals('Every accepted task must be drained', Submitter.Accepted,
+      FSharedCounter);
+  finally
+    Submitter.Free;
+    FirstQueuedEvent.Free;
+    StartEvent.Free;
+  end;
+end;
+
+procedure TTestProducerConsumerThreadPool.Test24_InvalidQueueSizeRejected;
+var
+  Pool: TProducerConsumerThreadPool;
+  Raised: Boolean;
+begin
+  Pool := nil;
+  Raised := False;
+  try
+    try
+      Pool := TProducerConsumerThreadPool.Create(4, 0);
+    except
+      on E: EArgumentOutOfRangeException do
+        Raised := True;
+    end;
+  finally
+    Pool.Free;
+  end;
+  AssertTrue('Zero-sized queues must be rejected', Raised);
+end;
+
+procedure TTestProducerConsumerThreadPool.Test25_WorkerShutdownCannotDeadlock;
+begin
+  FThreadPool.ClearErrors;
+  FThreadPool.Queue(@ShutdownFromWorker);
+  AssertTrue('Worker shutdown attempt must finish instead of self-deadlocking',
+    FThreadPool.WaitForAll(2000));
+  AssertEquals('Rejected worker shutdown must leave the pool accepting',
+    Ord(tpsAccepting), Ord(FThreadPool.State));
+  AssertTrue('Rejected worker shutdown should be captured as a task error',
+    Pos('cannot be called from a pool worker', FThreadPool.LastError) > 0);
 end;
 
 initialization

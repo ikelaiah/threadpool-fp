@@ -40,6 +40,18 @@ jobs:
             ./tests/TestRunner -a -p --format=plain
           fi
 
+      - name: Build benchmark
+        run: lazbuild --build-mode=Release benchmarks/ThreadPoolBenchmark.lpi
+
+      - name: Run benchmark smoke test
+        shell: bash
+        run: |
+          if [ -f benchmarks/ThreadPoolBenchmark.exe ]; then
+            ./benchmarks/ThreadPoolBenchmark.exe
+          else
+            ./benchmarks/ThreadPoolBenchmark
+          fi
+
   build-examples:
     name: Build examples (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

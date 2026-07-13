@@ -30,7 +30,7 @@ This library provides two thread pool implementations, each with its own strengt
 uses ThreadPool.Simple;
 ```
 - Global singleton instance for quick use
-- Direct task execution
+- Event-driven FIFO scheduling
 - Automatic thread count management
 - Best for simple parallel tasks
 - Lower memory overhead
@@ -48,13 +48,14 @@ A thread pool with fixed-size circular buffer (1024 items) and built-in backpres
   - Configurable capacity (default: 1024 items)
 
 - **Backpressure Handling**
-  - Load-based adaptive delays (10ms to 100ms)
-  - Automatic retry mechanism (up to 5 attempts)
-  - Throws EQueueFullException when retries exhausted
+  - Event-driven not-full signalling
+  - Timeout-aware TryQueue overloads
+  - Queue raises EQueueFullException when its compatibility timeout expires
 
-- **Monitoring &amp; Debug**
-  - Thread-safe error capture with thread IDs
-  - Detailed debug logging (can be disabled)
+- **Lifecycle &amp; Error Safety**
+  - Deterministic draining shutdown
+  - Timeout-aware waits
+  - Debug logging disabled by default
 
 Best for:
 - High-volume task processing with rate control
@@ -81,7 +82,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE. "/>
-    <Version Minor="7"/>
+    <Version Minor="8"/>
     <Files>
       <Item>
         <Filename Value="..\..\src\ThreadPool.Simple.pas"/>

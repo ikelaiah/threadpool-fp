@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-07-13
+
+### Added
+
+- Shared lifecycle contract for both pools: `tpsAccepting` → `tpsDraining` →
+  `tpsStopped`, exposed through `State`
+- Idempotent `Shutdown`, which stops admission, drains all accepted work, wakes
+  and joins workers, and rejects calls made from a pool worker to avoid self-wait
+- Timeout-aware `WaitForAll(TimeoutMS): Boolean` on both pools
+- Four timeout-aware `TryQueue(..., TimeoutMS): Boolean` overloads on both pools
+- `EThreadPoolShutdown` for submissions attempted after shutdown begins
+- Event-driven not-empty/not-full signalling for the bounded queue
+- Event-driven, dynamically growing O(1) circular FIFO for the Simple pool
+- Lifecycle, queue-timeout, callback-failure, concurrent admission/shutdown,
+  invalid-capacity, and draining regression tests
+- Release benchmark covering 20,000-task bursts and idle queue-to-start latency
+
+### Changed
+
+- Existing `Queue` overloads remain source-compatible
+- Both destructors now use the same draining shutdown behaviour
+- Worker completion accounting runs independently of task and callback failures
+- `OnError` exceptions are contained so they cannot terminate a worker or wedge
+  `WaitForAll`
+- Callback execution remains synchronous and is not time-limited; blocking tasks
+  or `OnError` handlers can delay completion and `Shutdown`
+- Producer backpressure waits only when the queue is full; load-threshold sleeps
+  are removed while `TBackpressureConfig` remains source-compatible
+- Producer debug logging is disabled by default
+- Test-suite runtime reduced from about 54 seconds to about 4 seconds on the
+  development machine while growing from 43 to 58 tests
+
+### Performance
+
+- Median of three identical-source Windows/FPC 3.2.2 `-O3` runs, logging disabled:
+  - Simple 20,000-task burst: 234 ms (v0.7.0) → 109 ms (v0.8.0), about 2.1× faster
+  - Producer burst: 3,953 ms → 172 ms, about 23.0× faster
+  - Simple idle latency: 7.9 ms → below the benchmark's 1 ms timer resolution
+  - Producer idle latency: 81.3 ms → below the 1 ms timer resolution
+
+### Compatibility notes
+
+- Queueing after `Shutdown` now raises `EThreadPoolShutdown`; v0.7.0's Simple
+  pool silently discarded such work
+- Backpressure threshold and low/medium-delay fields no longer introduce sleeps;
+  new code should use `TryQueue` to state its timeout directly
+
 ## [0.7.0] - 2026-07-11
 
 ### Added

@@ -1,6 +1,6 @@
 # 🚀 ThreadPool for Free Pascal
 
-[![Version](https://img.shields.io/badge/version-0.7.0-8B5CF6.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-8B5CF6.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-1E3A8A.svg)](https://opensource.org/licenses/MIT)
 [![Free Pascal](https://img.shields.io/badge/Free%20Pascal-3.2.2+-3B82F6.svg)](https://www.freepascal.org/)
 [![Lazarus](https://img.shields.io/badge/Lazarus-4.0+-60A5FA.svg)](https://www.lazarus-ide.org/)
@@ -47,6 +47,7 @@ A lightweight, easy-to-use thread pool implementation for Free Pascal. Simplify 
   - [🏃 Quick Start](#-quick-start)
     - [Simple Thread Pool](#simple-thread-pool)
     - [Producer-Consumer Thread Pool](#producer-consumer-thread-pool)
+    - [Timeouts and shutdown (v0.8.0)](#timeouts-and-shutdown-v080)
     - [Error Handling Simple Thread Pool](#error-handling-simple-thread-pool)
     - [Error Handling Producer-Consumer Thread Pool](#error-handling-producer-consumer-thread-pool)
     - [Tips](#tips)
@@ -76,7 +77,7 @@ This library provides two thread pool implementations, each with its own strengt
 uses ThreadPool.Simple;
 ```
 - Global singleton instance for quick use
-- Direct task execution
+- Event-driven, dynamically growing FIFO work queue
 - Automatic thread count management
 - Best for simple parallel tasks
 - Lower memory overhead
@@ -86,7 +87,8 @@ uses ThreadPool.Simple;
 uses ThreadPool.ProducerConsumer;
 ```
 
-A thread pool with fixed-size circular buffer (1024 items) and built-in backpressure handling:
+A thread pool with a fixed-size circular buffer (1024 items) and event-driven
+backpressure:
 
 - **Queue Management**
   - Fixed-size circular buffer for predictable memory usage
@@ -94,17 +96,20 @@ A thread pool with fixed-size circular buffer (1024 items) and built-in backpres
   - Configurable capacity (default: 1024 items)
 
 - **Backpressure Handling**
-  - Load-based adaptive delays (10ms to 100ms)
-  - Automatic retry mechanism (up to 5 attempts)
-  - Throws EQueueFullException when retries exhausted
+  - Producers wait only while the queue is actually full
+  - `TryQueue(..., TimeoutMS)` reports saturation without raising
+  - Existing `Queue(...)` calls retain a bounded default wait and raise
+    `EQueueFullException` if that wait expires
 
 - **Monitoring & Debug**
-  - Thread-safe error capture with thread IDs
-  - Detailed debug logging (can be disabled)
+  - Thread-safe error capture
+  - Internal debug logging is disabled by default
 
 > [!WARNING]
 > 
-> While the system includes automatic retry mechanisms, it's recommended that users implement their own error handling strategies for scenarios where the queue remains full after all retry attempts.
+> For sustained saturation, prefer `TryQueue(..., TimeoutMS)` and handle a
+> `False` result explicitly. Legacy `Queue(...)` raises `EQueueFullException`
+> when its compatibility wait expires.
 
 ### Shared Features
 
@@ -118,16 +123,21 @@ A thread pool with fixed-size circular buffer (1024 items) and built-in backpres
   - Object methods: `Pool.Queue(@MyObject.MyMethod)`
   - Indexed variants: `Pool.Queue(@MyProc, Index)`
   
-- **Thread Safety**
+- **Lifecycle & Thread Safety — v0.8.0**
   - Built-in synchronization
-  - Safe resource sharing
-  - Protected error handling
+  - Event-driven workers; no polling sleeps
+  - `Shutdown` stops admission, drains accepted work, and joins workers
+  - Queueing after shutdown raises `EThreadPoolShutdown`
+  - `WaitForAll(TimeoutMS)` and `TryQueue(..., TimeoutMS)` use milliseconds;
+    zero means do not wait and `THREADPOOL_INFINITE` means no timeout
   
 - **Error Management**
   - Worker exceptions are caught automatically; the pool keeps running
   - `LastError` for the most recent failure
   - `Errors` collection captures **all** failed-task messages (capped, oldest dropped) — *v0.7.0*
   - Optional `OnError` callback fired per failed task — *v0.7.0*
+  - Exceptions raised by `OnError` are contained and cannot terminate workers
+  - Callback execution remains synchronous; keep callbacks short and bounded
 
 > [!NOTE]
 > Thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for details.
@@ -197,6 +207,42 @@ begin
   end;
 end;
 ```
+
+### Timeouts and shutdown (v0.8.0)
+
+Both pools use the same lifecycle contract and timeout units:
+
+```pascal
+// Existing source remains valid and waits indefinitely for completion.
+Pool.Queue(@DoWork);
+Pool.WaitForAll;
+
+// Timeout-aware wait: False means work is still running after 250 ms.
+if not Pool.WaitForAll(250) then
+  WriteLn('Still working');
+
+// ProducerConsumer is bounded; this waits at most 50 ms for queue space.
+if not Pool.TryQueue(@DoWork, 50) then
+  WriteLn('Queue is saturated');
+
+// Stop accepting work, drain every accepted task, then join all workers.
+Pool.Shutdown;
+```
+
+Timeouts are milliseconds. `0` performs only an immediate check and
+`THREADPOOL_INFINITE` waits without a deadline. `TSimpleThreadPool` is
+unbounded, so its `TryQueue` timeout is accepted for API symmetry but queue
+capacity cannot time out. After `Shutdown`, all `Queue` and `TryQueue` overloads
+raise `EThreadPoolShutdown`.
+
+Exception containment does not impose an execution deadline. A task or
+`OnError` handler that blocks indefinitely continues to occupy its worker, and
+`Shutdown` waits because it drains all accepted work. Use application-level
+timeouts or cancellation inside operations that may block.
+
+`WaitForAll` is not an admission barrier for unrelated producer threads. If
+producers may still submit concurrently, coordinate them first or call
+`Shutdown`, which closes admission before draining.
 
 ### Error Handling Simple Thread Pool
 
@@ -301,8 +347,9 @@ Prefer to react the moment a task fails (instead of polling after `WaitForAll`)?
 Assign an `OnError` callback:
 
 ```pascal
-// IMPORTANT: OnError is called from a worker thread. Keep the handler short and
-// thread-safe; synchronize if it touches the UI or shared state.
+// IMPORTANT: OnError is called synchronously from a worker thread. Keep the
+// handler short, bounded, and thread-safe; synchronize if it touches the UI or
+// shared state.
 Pool.OnError := @MyHandler.OnTaskError;
 ```
 
@@ -310,13 +357,13 @@ Pool.OnError := @MyHandler.OnTaskError;
 
 > [!NOTE]
 > **Error Handling**
-> - 🛡️ Exceptions are caught and stored with thread IDs
+> - 🛡️ Exceptions are caught and stored without terminating workers
 > - ⚡ Pool continues operating after exceptions
 > - 🔄 Use ClearLastError to reset error state
 >
 > **Debugging**
-> - 🔍 Error messages contain thread identification
-> - 📝 Debug logging enabled by default (configurable)
+> - 🔍 Task failures are collected without stopping workers
+> - 📝 Internal debug logging is disabled by default
 > - 📊 Queue capacity monitoring available
 
 
@@ -331,7 +378,7 @@ Need a thread pool?
 ```
 
 **Use Simple Thread Pool when:**
-- Direct task execution without queuing needed
+- An unbounded, dynamically growing queue is appropriate
 - Task count is predictable and moderate
 - Low memory overhead is important
 - Global instance (GlobalThreadPool) convenience desired
@@ -342,7 +389,7 @@ Need a thread pool?
 - Backpressure handling required
 - Queue overflow protection important
 - Need detailed execution monitoring
-- Want configurable retry mechanisms
+- Want bounded submission with explicit timeouts
 
 ### Queue overload reference
 
@@ -491,7 +538,7 @@ All tasks completed successfully!
 ## ⚙️ Requirements
 
 - 💻 Free Pascal 3.2.2 or later
-- 📦 Lazarus 3.6.0 or later
+- 📦 Lazarus 4.0 or later
 - 🆓 No external dependencies
 
 ## 📚 Documentation
@@ -500,6 +547,7 @@ All tasks completed successfully!
 - [ThreadPool.Simple Technical Details](docs/ThreadPool.Simple-Technical.md)
 - [ThreadPool.ProducerConsumer API Documentation](docs/ThreadPool.ProducerConsumer-API.md)
 - [ThreadPool.ProducerConsumer Technical Details](docs/ThreadPool.ProducerConsumer-Technical.md)
+- [v0.8.0 Release Notes](docs/release-notes-v0.8.0.md)
 
 ## 🧪 Testing
 
@@ -508,7 +556,8 @@ All tasks completed successfully!
 3. Run `./TestRunner.exe -a -p --format=plain` to see the test results.
 4. Ensure all tests pass to verify the library's functionality
 
-May take up to 5 mins to run all tests.
+The complete suite normally finishes in a few seconds. Release benchmarks live
+in [`benchmarks/`](benchmarks/).
 
 ## 🧵 Thread Management
 
@@ -521,14 +570,14 @@ May take up to 5 mins to run all tests.
 ### Implementation Characteristics
 
 **Simple Thread Pool**
-- Direct task execution without queuing
-- Continuous task processing
-- Clean shutdown handling
+- Dynamically growing O(1) FIFO queue
+- Event-driven worker wakeups
+- Draining shutdown
 
 **Producer-Consumer Thread Pool**
 - Fixed-size circular queue (1024 items by default, configurable)
-- Backpressure handling with adaptive delays
-- Graceful overflow management
+- Event-driven not-empty/not-full signalling
+- Timeout-aware bounded submission and draining shutdown
 
 
 ## ⚠️ Common Mistakes
@@ -603,10 +652,9 @@ GlobalThreadPool.WaitForAll;
 
 ## 🚧 Planned/In Progress
 
-- Performance & robustness pass — event-driven idle workers (remove the Simple pool's poll loop), shutdown review, stress/soak tests (planned for 0.8.0)
-- Support for `procedure Queue(AMethod: TProc; AArgs: array of Const);`
-- More comprehensive tests
-- More examples
+- Result-bearing task handles/futures
+- Chunked `ParallelFor` helpers
+- Additional platform and long-running soak coverage
 
 ## 🤝 Contributing
 
