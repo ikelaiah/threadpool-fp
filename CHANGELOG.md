@@ -28,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Worker completion accounting runs independently of task and callback failures
 - `OnError` exceptions are contained so they cannot terminate a worker or wedge
   `WaitForAll`
+- Callback execution remains synchronous and is not time-limited; blocking tasks
+  or `OnError` handlers can delay completion and `Shutdown`
 - Producer backpressure waits only when the queue is full; load-threshold sleeps
   are removed while `TBackpressureConfig` remains source-compatible
 - Producer debug logging is disabled by default

@@ -168,12 +168,18 @@ end;
 Or assign `OnError` to react the moment a task fails, instead of polling:
 
 ```pascal
-// Called from a worker thread — keep it short and thread-safe.
+// Called synchronously from a worker thread — keep it short, bounded, and
+// thread-safe.
 Pool.OnError := @Handler.OnTaskError;
 ```
 
 Exceptions raised by the handler are contained by the pool. They cannot
 terminate a worker or prevent task completion accounting.
+
+Containment does not limit callback execution time. A task or `OnError` handler
+that blocks continues to occupy its worker, and can delay `WaitForAll` and
+`Shutdown`. Apply an application-level timeout or cancellation mechanism to
+operations that may block.
 
 ### Full pattern
 

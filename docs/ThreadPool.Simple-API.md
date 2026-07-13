@@ -175,8 +175,8 @@ type
 
 procedure TMyHandler.OnTaskError(const AMessage: string);
 begin
-  // NOTE: called from a worker thread. Keep it short and thread-safe;
-  // synchronize if you touch the UI or shared state.
+  // NOTE: called synchronously from a worker thread. Keep it short, bounded,
+  // and thread-safe; synchronize if you touch the UI or shared state.
   Log('task failed: ' + AMessage);
 end;
 
@@ -185,6 +185,11 @@ Pool.OnError := @Handler.OnTaskError;
 
 Exceptions raised by the handler are contained by the pool. They cannot
 terminate a worker or prevent task completion accounting.
+
+Containment does not limit callback execution time. A task or `OnError` handler
+that blocks continues to occupy its worker, and can delay `WaitForAll` and
+`Shutdown`. Apply an application-level timeout or cancellation mechanism to
+operations that may block.
 
 ## Lifecycle and submission timeouts (v0.8.0)
 

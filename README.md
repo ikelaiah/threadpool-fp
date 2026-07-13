@@ -137,6 +137,7 @@ backpressure:
   - `Errors` collection captures **all** failed-task messages (capped, oldest dropped) — *v0.7.0*
   - Optional `OnError` callback fired per failed task — *v0.7.0*
   - Exceptions raised by `OnError` are contained and cannot terminate workers
+  - Callback execution remains synchronous; keep callbacks short and bounded
 
 > [!NOTE]
 > Thread count is determined by `TThread.ProcessorCount` at startup and remains fixed. See [Thread Management](#-thread-management) for details.
@@ -233,6 +234,11 @@ Timeouts are milliseconds. `0` performs only an immediate check and
 unbounded, so its `TryQueue` timeout is accepted for API symmetry but queue
 capacity cannot time out. After `Shutdown`, all `Queue` and `TryQueue` overloads
 raise `EThreadPoolShutdown`.
+
+Exception containment does not impose an execution deadline. A task or
+`OnError` handler that blocks indefinitely continues to occupy its worker, and
+`Shutdown` waits because it drains all accepted work. Use application-level
+timeouts or cancellation inside operations that may block.
 
 `WaitForAll` is not an admission barrier for unrelated producer threads. If
 producers may still submit concurrently, coordinate them first or call
@@ -341,8 +347,9 @@ Prefer to react the moment a task fails (instead of polling after `WaitForAll`)?
 Assign an `OnError` callback:
 
 ```pascal
-// IMPORTANT: OnError is called from a worker thread. Keep the handler short and
-// thread-safe; synchronize if it touches the UI or shared state.
+// IMPORTANT: OnError is called synchronously from a worker thread. Keep the
+// handler short, bounded, and thread-safe; synchronize if it touches the UI or
+// shared state.
 Pool.OnError := @MyHandler.OnTaskError;
 ```
 
@@ -531,7 +538,7 @@ All tasks completed successfully!
 ## ⚙️ Requirements
 
 - 💻 Free Pascal 3.2.2 or later
-- 📦 Lazarus 3.6.0 or later
+- 📦 Lazarus 4.0 or later
 - 🆓 No external dependencies
 
 ## 📚 Documentation

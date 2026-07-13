@@ -22,6 +22,11 @@ admission, waits for submissions already in progress, drains all accepted work,
 wakes and joins workers, and publishes `tpsStopped`. Repeated calls are safe.
 Queueing after shutdown raises `EThreadPoolShutdown`.
 
+Task and `OnError` exceptions are contained, but callback execution is
+synchronous and has no automatic deadline. A blocking callback can therefore
+delay completion and `Shutdown`; operations that may block should implement an
+application-level timeout or cancellation mechanism.
+
 ## Timeout contract
 
 Timeout values are milliseconds:
