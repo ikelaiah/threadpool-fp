@@ -1,8 +1,10 @@
 # ThreadPool for Free Pascal — cheat sheet
 
-Quick reference for v0.8.5. For full contracts, use the
+Quick reference for v0.9.0. For full contracts, use the
 [Simple API](ThreadPool.Simple-API.md) or
-[Producer-Consumer API](ThreadPool.ProducerConsumer-API.md).
+[Producer-Consumer API](ThreadPool.ProducerConsumer-API.md). Task handles,
+batches, ranges, and cancellation are covered by the
+[Tasks API](ThreadPool.Tasks-API.md).
 
 ## Choose a pool
 
@@ -12,6 +14,9 @@ Quick reference for v0.8.5. For full contracts, use the
 | A ready-to-use process-wide instance | `GlobalThreadPool` from `ThreadPool.Simple` |
 | Bounded memory and explicit queue saturation handling | `ThreadPool.ProducerConsumer` |
 | Producer backpressure with a submission deadline | `TProducerConsumerThreadPool.TryQueue` |
+| Observe or cancel one pending task | `Submit` and `IThreadPoolTask` |
+| Coordinate related task handles | `IThreadPoolTaskBatch` |
+| Process an integer range efficiently | `SubmitRange` |
 
 ## Import correctly
 
@@ -23,6 +28,7 @@ uses
   {$IFDEF UNIX}
   cthreads,
   {$ENDIF}
+  ThreadPool.Tasks,
   ThreadPool.Simple;  // or ThreadPool.ProducerConsumer
 ```
 
@@ -58,6 +64,53 @@ The indexed callback signatures are:
 procedure ProcessItem(Index: Integer);
 procedure TWorker.ProcessItem(Index: Integer);
 ```
+
+## Submit observable work
+
+```pascal
+Task := Pool.Submit(@DoWork);
+
+if not Task.WaitFor(250) then
+  WriteLn('Still pending or running')
+else if Task.State = ttsFailed then
+  WriteLn(Task.ErrorMessage);
+```
+
+States are `ttsPending`, `ttsRunning`, `ttsCompleted`, `ttsFailed`, and
+`ttsCancelled`. `WaitFor` returns `True` for any terminal state.
+
+```pascal
+if Task.Cancel then
+  WriteLn('Cancelled before worker start');
+```
+
+Cancellation never interrupts running code. A cancelled entry may remain in
+the queue as a skipped tombstone until a worker reaches it.
+
+## Coordinate a batch
+
+```pascal
+Batch := NewThreadPoolTaskBatch;
+for I := 0 to High(Items) do
+  Batch.Add(Pool.Submit(@ProcessItem, I));
+
+Batch.WaitFor;
+WriteLn(Batch.FinishedCount, '/', Batch.Count);
+```
+
+`Batch.CancelPending` returns the number of pending tasks it cancelled. A wait
+uses the batch entries present when the call starts and one overall timeout.
+
+## Submit a chunked range
+
+```pascal
+Batch := Pool.SubmitRange(@ProcessItem, 0, High(Items));
+Batch.WaitFor;
+```
+
+Bounds are inclusive. The default chunk size `0` creates at most four chunks
+per worker. Pass a positive size for explicit chunks; smaller chunks improve
+load balance and cancellation granularity but add queue overhead.
 
 ## Handle bounded-queue saturation
 
@@ -153,5 +206,5 @@ On Windows, run `tests/TestRunner.exe` in the final command.
 
 - [README](../README.md)
 - [Examples](../examples/)
-- [v0.8.5 release notes](release-notes-v0.8.5.md)
+- [v0.9.0 release notes](release-notes-v0.9.0.md)
 - [Changelog](../CHANGELOG.md)

@@ -5,7 +5,7 @@ unit ThreadPool.ProducerConsumer;
 interface
 
 uses
-  Classes, SysUtils, Math, ThreadPool.Types, SyncObjs;
+  Classes, SysUtils, Math, ThreadPool.Types, ThreadPool.Tasks, SyncObjs;
 
 var
   DEBUG_LOG: Boolean = False;  // Opt-in only; disabled by default
@@ -97,7 +97,7 @@ type
 
   {$REGION 'Public API: TProducerConsumerThreadPool'}
   { Producer-consumer thread pool implementation }
-  TProducerConsumerThreadPool = class(TThreadPoolBase)
+  TProducerConsumerThreadPool = class(TThreadPoolBase, IThreadPoolTaskSource)
   private
     FThreads: TThreadList;
     FWorkQueue: TThreadSafeQueue;  // Use our custom thread-safe queue
@@ -109,6 +109,7 @@ type
     procedure ClearThreads;
     function TryQueueWorkItem(WorkItem: IWorkItem;
       ATimeoutMS: Cardinal): Boolean;
+    function SubmitRangeWorkItem(const AWorkItem: IWorkItem): Boolean;
     procedure CompleteWorkItem;
     function IsCurrentWorkerThread: Boolean;
   public
@@ -131,6 +132,26 @@ type
       ATimeoutMS: Cardinal): Boolean; overload; override;
     function TryQueue(AMethod: TThreadMethodIndex; AIndex: Integer;
       ATimeoutMS: Cardinal): Boolean; overload; override;
+    function Submit(AProcedure: TThreadProcedure): IThreadPoolTask; overload;
+    function Submit(AMethod: TThreadMethod): IThreadPoolTask; overload;
+    function Submit(AProcedure: TThreadProcedureIndex;
+      AIndex: Integer): IThreadPoolTask; overload;
+    function Submit(AMethod: TThreadMethodIndex;
+      AIndex: Integer): IThreadPoolTask; overload;
+    function TrySubmit(AProcedure: TThreadProcedure; ATimeoutMS: Cardinal;
+      out ATask: IThreadPoolTask): Boolean; overload;
+    function TrySubmit(AMethod: TThreadMethod; ATimeoutMS: Cardinal;
+      out ATask: IThreadPoolTask): Boolean; overload;
+    function TrySubmit(AProcedure: TThreadProcedureIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean; overload;
+    function TrySubmit(AMethod: TThreadMethodIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean; overload;
+    function SubmitRange(AProcedure: TThreadProcedureIndex;
+      AFirstIndex, ALastIndex: Integer;
+      AChunkSize: Integer = 0): IThreadPoolTaskBatch; overload;
+    function SubmitRange(AMethod: TThreadMethodIndex;
+      AFirstIndex, ALastIndex: Integer;
+      AChunkSize: Integer = 0): IThreadPoolTaskBatch; overload;
     procedure WaitForAll; overload; override;
     function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload; override;
     procedure Shutdown; override;
@@ -249,6 +270,171 @@ begin
       FCompletionEvent.SetEvent;
   finally
     FWorkItemLock.Leave;
+  end;
+end;
+
+function TProducerConsumerThreadPool.SubmitRangeWorkItem(
+  const AWorkItem: IWorkItem): Boolean;
+begin
+  Result := TryQueueWorkItem(AWorkItem, THREADPOOL_INFINITE);
+end;
+
+function TProducerConsumerThreadPool.Submit(
+  AProcedure: TThreadProcedure): IThreadPoolTask;
+begin
+  if not TrySubmit(AProcedure, FWorkQueue.GetDefaultTimeout, Result) then
+    raise EQueueFullException.Create('Queue is full (submission timed out)');
+end;
+
+function TProducerConsumerThreadPool.Submit(
+  AMethod: TThreadMethod): IThreadPoolTask;
+begin
+  if not TrySubmit(AMethod, FWorkQueue.GetDefaultTimeout, Result) then
+    raise EQueueFullException.Create('Queue is full (submission timed out)');
+end;
+
+function TProducerConsumerThreadPool.Submit(
+  AProcedure: TThreadProcedureIndex; AIndex: Integer): IThreadPoolTask;
+begin
+  if not TrySubmit(AProcedure, AIndex, FWorkQueue.GetDefaultTimeout,
+    Result) then
+    raise EQueueFullException.Create('Queue is full (submission timed out)');
+end;
+
+function TProducerConsumerThreadPool.Submit(
+  AMethod: TThreadMethodIndex; AIndex: Integer): IThreadPoolTask;
+begin
+  if not TrySubmit(AMethod, AIndex, FWorkQueue.GetDefaultTimeout,
+    Result) then
+    raise EQueueFullException.Create('Queue is full (submission timed out)');
+end;
+
+function TProducerConsumerThreadPool.TrySubmit(
+  AProcedure: TThreadProcedure; ATimeoutMS: Cardinal;
+  out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AProcedure, ATask);
+  try
+    BeginQueue;
+    try
+      Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
+    finally
+      EndQueue;
+    end;
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TProducerConsumerThreadPool.TrySubmit(AMethod: TThreadMethod;
+  ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AMethod, ATask);
+  try
+    BeginQueue;
+    try
+      Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
+    finally
+      EndQueue;
+    end;
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TProducerConsumerThreadPool.TrySubmit(
+  AProcedure: TThreadProcedureIndex; AIndex: Integer;
+  ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AProcedure, AIndex, ATask);
+  try
+    BeginQueue;
+    try
+      Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
+    finally
+      EndQueue;
+    end;
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TProducerConsumerThreadPool.TrySubmit(
+  AMethod: TThreadMethodIndex; AIndex: Integer;
+  ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AMethod, AIndex, ATask);
+  try
+    BeginQueue;
+    try
+      Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
+    finally
+      EndQueue;
+    end;
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TProducerConsumerThreadPool.SubmitRange(
+  AProcedure: TThreadProcedureIndex; AFirstIndex, ALastIndex: Integer;
+  AChunkSize: Integer): IThreadPoolTaskBatch;
+begin
+  if GetThreadPoolRangeChunkSize(AFirstIndex, ALastIndex,
+    FThreadCount, AChunkSize) = 0 then
+    Exit(NewThreadPoolTaskBatch);
+  if IsCurrentWorkerThread then
+    raise EThreadPoolDeadlock.Create(
+      'SubmitRange cannot be called from a worker of the same bounded pool');
+  BeginQueue;
+  try
+    Result := NewThreadPoolRangeBatch(AProcedure, AFirstIndex,
+      ALastIndex, FThreadCount, AChunkSize, @SubmitRangeWorkItem);
+  finally
+    EndQueue;
+  end;
+end;
+
+function TProducerConsumerThreadPool.SubmitRange(
+  AMethod: TThreadMethodIndex; AFirstIndex, ALastIndex: Integer;
+  AChunkSize: Integer): IThreadPoolTaskBatch;
+begin
+  if GetThreadPoolRangeChunkSize(AFirstIndex, ALastIndex,
+    FThreadCount, AChunkSize) = 0 then
+    Exit(NewThreadPoolTaskBatch);
+  if IsCurrentWorkerThread then
+    raise EThreadPoolDeadlock.Create(
+      'SubmitRange cannot be called from a worker of the same bounded pool');
+  BeginQueue;
+  try
+    Result := NewThreadPoolRangeBatch(AMethod, AFirstIndex,
+      ALastIndex, FThreadCount, AChunkSize, @SubmitRangeWorkItem);
+  finally
+    EndQueue;
   end;
 end;
 
@@ -628,12 +814,7 @@ begin
     while (not Terminated) and Pool.FWorkQueue.TryDequeue(WorkItem) do
     begin
       try
-        try
-          WorkItem.Execute;
-        except
-          on E: Exception do
-            Pool.SetLastError(E.Message);
-        end;
+        ExecuteThreadPoolWorkItem(WorkItem, @Pool.SetLastError);
       finally
         WorkItem := nil;
         { This must execute even when the task or OnError callback fails. }

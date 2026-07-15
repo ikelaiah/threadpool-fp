@@ -106,5 +106,6 @@ diagnostic code cannot terminate a worker or skip completion accounting.
 ## Limitations
 
 - Queue capacity and worker count are fixed after construction.
-- No task priorities, result-bearing futures, or task cancellation yet.
+- No task priorities, result-bearing futures, or forced cancellation of
+  running callbacks. v0.9 can cancel pending submitted work.
 - `OnError` executes on a worker and should remain short and thread-safe.

@@ -12,6 +12,10 @@
 >
 > See the [official FPC documentation on `cthreads`](https://www.freepascal.org/docs-html/rtl/cthreads/index.html).
 
+v0.9 observable `Submit` tasks, batches, ranges, and pending cancellation are
+documented in the [ThreadPool.Tasks API](ThreadPool.Tasks-API.md). The queueing
+surface below remains unchanged.
+
 ## Thread Pool Types
 
 ### GlobalThreadPool

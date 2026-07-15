@@ -4,7 +4,7 @@
 
 # ThreadPool for Free Pascal
 
-[![Version](https://img.shields.io/badge/version-0.8.5-8B5CF6.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-8B5CF6.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-1E3A8A.svg)](LICENSE.md)
 [![Free Pascal](https://img.shields.io/badge/Free%20Pascal-3.2.2+-3B82F6.svg)](https://www.freepascal.org/)
 [![Lazarus](https://img.shields.io/badge/Lazarus-4.0+-60A5FA.svg)](https://www.lazarus-ide.org/)
@@ -19,11 +19,12 @@ producer-consumer workloads that need backpressure.
 
 [Quick start](#quick-start) · [Cheat sheet](docs/CHEATSHEET.md) ·
 [API documentation](#documentation) · [Examples](examples/) ·
-[v0.8.5 release notes](docs/release-notes-v0.8.5.md)
+[v0.9.0 release notes](docs/release-notes-v0.9.0.md)
 
 > [!TIP]
-> ✨ **New in v0.8.5:** refreshed project identity, a shorter README, and a new
-> [cheat sheet](docs/CHEATSHEET.md). Runtime behavior is unchanged from v0.8.0.
+> ✨ **New in v0.9.0:** observable task handles, task batches, efficient
+> chunked ranges, and pending-work cancellation. Existing v0.8 queueing code
+> remains source-compatible. See the [task API](docs/ThreadPool.Tasks-API.md).
 
 > [!NOTE]
 > This library is designed for simple parallel processing and learning-friendly
@@ -47,6 +48,9 @@ Both implementations provide:
 - event-driven workers with no polling sleeps;
 - four task forms: procedures, methods, and indexed variants;
 - timeout-aware `TryQueue` and `WaitForAll` overloads;
+- observable `Submit`/`TrySubmit` task handles;
+- task batches and chunked `SubmitRange` processing;
+- race-safe cancellation of work that has not started;
 - deterministic, draining `Shutdown`;
 - captured worker exceptions through `LastError`, `Errors`, and `OnError`; and
 - automatic worker-count selection with safety limits.
@@ -130,6 +134,33 @@ end.
 The first constructor argument is the worker count; `0` selects
 `TThread.ProcessorCount`. The second is queue capacity.
 
+### Tasks, batches, and ranges
+
+Add `ThreadPool.Tasks` when work needs to be observed or coordinated:
+
+```pascal
+uses
+  ThreadPool.Tasks, ThreadPool.Simple;
+
+var
+  Task: IThreadPoolTask;
+  Batch: IThreadPoolTaskBatch;
+begin
+  Task := GlobalThreadPool.Submit(@DoWork);
+  if Task.WaitFor(250) and (Task.State = ttsFailed) then
+    WriteLn(Task.ErrorMessage);
+
+  Batch := GlobalThreadPool.SubmitRange(@ProcessItem, 0, 999);
+  Batch.WaitFor;
+end;
+```
+
+`Task.Cancel` succeeds only while the task is pending. It never interrupts a
+running callback. A range uses a small number of chunks by default instead of
+creating one queue item per index. See the
+[task API](docs/ThreadPool.Tasks-API.md) for batch counts, timeouts, explicit
+chunk sizes, and bounded-pool rules.
+
 ## Lifecycle and timeouts
 
 Both pools follow one monotonic lifecycle:
@@ -172,6 +203,9 @@ expires.
 > `Shutdown` to close admission before draining. Tasks and `OnError` callbacks
 > also have no automatic execution deadline; add cancellation or
 > application-level timeouts where needed.
+
+Task handles and batches do not retain their pool. They may be kept after a
+pool is freed, because pool destruction drains accepted work first.
 
 ## Error handling
 
@@ -232,6 +266,9 @@ Requirements:
 | [`SimpleDemo`](examples/SimpleDemo/) | Procedures, methods, indexes, and the global pool |
 | [`ProdConSimpleDemo`](examples/ProdConSimpleDemo/) | Basic bounded-pool ownership and queueing |
 | [`SimpleErrorHandlingBasic`](examples/SimpleErrorHandlingBasic/) | Reading captured errors after completion |
+| [`TaskCoordination`](examples/TaskCoordination/) | Task handles, batches, ranges, and cancellation |
+| [`CoordinatedFileBackup`](examples/CoordinatedFileBackup/) | Per-file progress, critical-failure policy, and pending cancellation |
+| [`ParallelLogAnalyzer`](examples/ParallelLogAnalyzer/) | Chunked analysis followed by a parallel reporting phase |
 
 More focused samples cover:
 
@@ -241,8 +278,11 @@ More focused samples cover:
   [`SimpleWordCounter`](examples/SimpleWordCounter/), and
   [`ProdConMessageProcessor`](examples/ProdConMessageProcessor/);
 - advanced callbacks: [`SimpleErrorHandling`](examples/SimpleErrorHandling/);
-- real I/O: [`ParallelFileHasher`](examples/ParallelFileHasher/) and
-  [`ParallelUrlFetcher`](examples/ParallelUrlFetcher/).
+- real I/O: [`ParallelFileHasher`](examples/ParallelFileHasher/),
+  [`ParallelUrlFetcher`](examples/ParallelUrlFetcher/), and
+  [`CoordinatedFileBackup`](examples/CoordinatedFileBackup/);
+- coordinated data processing:
+  [`ParallelLogAnalyzer`](examples/ParallelLogAnalyzer/).
 
 ## Documentation
 
@@ -251,9 +291,10 @@ More focused samples cover:
 | [Cheat sheet](docs/CHEATSHEET.md) | Calls and safety rules at a glance |
 | [Simple API](docs/ThreadPool.Simple-API.md) | Complete unbounded-pool reference |
 | [Producer-Consumer API](docs/ThreadPool.ProducerConsumer-API.md) | Complete bounded-pool reference |
+| [Tasks API](docs/ThreadPool.Tasks-API.md) | Submit, wait, batch, range, and cancellation contracts |
 | [Simple technical guide](docs/ThreadPool.Simple-Technical.md) | Internal design and synchronization |
 | [Producer-Consumer technical guide](docs/ThreadPool.ProducerConsumer-Technical.md) | Queue and backpressure internals |
-| [v0.8.5 release notes](docs/release-notes-v0.8.5.md) | Current release scope and compatibility |
+| [v0.9.0 release notes](docs/release-notes-v0.9.0.md) | Current release scope and compatibility |
 | [Changelog](CHANGELOG.md) | Full version history |
 
 The banner's editable source is

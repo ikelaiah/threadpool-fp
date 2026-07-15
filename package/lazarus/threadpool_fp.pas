@@ -8,7 +8,8 @@ unit ThreadPool_FP;
 interface
 
 uses
-  ThreadPool.Simple, ThreadPool.Types, ThreadPool.ProducerConsumer;
+  ThreadPool.Simple, ThreadPool.Types, ThreadPool.Tasks,
+  ThreadPool.ProducerConsumer;
 
 implementation
 

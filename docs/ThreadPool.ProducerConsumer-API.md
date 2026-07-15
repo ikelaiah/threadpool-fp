@@ -20,6 +20,10 @@ For simpler use cases see `ThreadPool.Simple`.
 >
 > See the [official FPC documentation on `cthreads`](https://www.freepascal.org/docs-html/rtl/cthreads/index.html).
 
+v0.9 observable `Submit` tasks, batches, ranges, and pending cancellation are
+documented in the [ThreadPool.Tasks API](ThreadPool.Tasks-API.md). Bounded
+`TrySubmit` uses the same deadline rules as `TryQueue`.
+
 ---
 
 ## Constructor
@@ -391,6 +395,7 @@ end;
 
 - Fixed queue capacity — no dynamic resizing
 - `LastError` holds only the most recent worker exception (use `Errors` to collect all; capped at `MAX_STORED_ERRORS`)
-- No task priority or cancellation support
+- No task priorities or forced cancellation of running callbacks; v0.9 can
+  cancel pending submitted work
 - No dynamic thread scaling after construction
 - Not suitable for real-time or UI-thread work

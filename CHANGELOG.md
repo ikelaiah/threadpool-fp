@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-07-14
+
+### Added
+
+- `ThreadPool.Tasks`, a shared task coordination unit for both pool
+  implementations
+- `Submit` overloads returning `IThreadPoolTask` handles with pending, running,
+  completed, failed, and cancelled states
+- Timeout-aware `TrySubmit` overloads matching all four existing callback forms
+- Individual task waiting, failure messages, terminal-state observation, and
+  race-safe pending cancellation
+- `EThreadPoolDeadlock` protection when a callback or error handler attempts to
+  wait for its own task
+- `IThreadPoolTaskBatch` for snapshot-based waits, status counts, indexed task
+  access, and batch pending cancellation
+- Chunked `SubmitRange` overloads for indexed procedures and methods, with
+  inclusive bounds, automatic or explicit chunk sizes, and a returned batch
+- v0.8 interface compile sentinel plus task, batch, cancellation-race, bounded
+  admission, lifetime, and range regression tests
+- `TaskCoordination` API tour, plus production-shaped coordinated file-backup
+  and parallel log-analysis examples
+- Complete task API documentation
+- Separate benchmark cases for legacy queueing, tracked submission, individual
+  indexed submission, and chunked ranges
+
+### Changed
+
+- Simple pool queue storage now uses `IWorkItem` consistently, allowing shared
+  tracked work items while preserving its dynamically growing O(1) FIFO
+- Both workers execute tracked work through one shared error/state transition
+  boundary
+- Package version advanced to 0.9.0 and includes `ThreadPool.Tasks`
+
+### Performance
+
+- Legacy `Queue` retains its untracked path, so programs that do not request
+  task handles do not allocate task state or completion events
+- Task completion events are created lazily only when unfinished work is waited
+  on
+- Automatic ranges create at most `ThreadCount * 4` queue entries instead of
+  one entry per index
+- Windows/FPC 3.2.2 release checks kept the legacy 20,000-task median within the
+  v0.8.5 10% regression budget; a 200,000-index Simple range was over 60x faster
+  than individual tracked submissions in the orientation run
+
+### Compatibility
+
+- The v0.8 `IThreadPool` interface and GUID are unchanged; new interface-based
+  callers use the separate `IThreadPoolTaskSource` capability
+- Existing `Queue`, `TryQueue`, `WaitForAll`, lifecycle, error, constructor, and
+  `GlobalThreadPool` contracts remain available
+- Cancellation applies only to pending callbacks. It never interrupts running
+  code, and a bounded-queue tombstone may occupy its slot until dequeued
+- Bounded `SubmitRange` calls from the same pool's worker are rejected with
+  `EThreadPoolDeadlock` to prevent queue-starvation deadlocks
+
 ## [0.8.5] - 2026-07-14
 
 ### Added

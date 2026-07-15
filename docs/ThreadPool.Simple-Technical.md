@@ -213,4 +213,5 @@ rejected before it can wait on itself.
 
 - Exceptions are not propagated to the main thread — must poll `LastError`
 - Thread count is fixed after construction — no dynamic scaling
-- No task prioritisation or cancellation
+- No task prioritisation or forced cancellation of running callbacks; v0.9 can
+  cancel pending submitted work

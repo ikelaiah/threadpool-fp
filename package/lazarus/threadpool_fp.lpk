@@ -23,8 +23,9 @@ A lightweight, dependency-free thread pool library with two event-driven impleme
 
 - ThreadPool.Simple: an unbounded FIFO with a managed global instance
 - ThreadPool.ProducerConsumer: a bounded FIFO with timeout-aware backpressure
+- ThreadPool.Tasks: observable tasks, batches, ranges, and pending cancellation
 
-Both pools provide draining shutdown, timeout-aware waits, four task forms, and captured worker errors. See README.md and docs/CHEATSHEET.md for usage."/>
+Both pools provide draining shutdown, timeout-aware waits, four task forms, observable submission, and captured worker errors. See README.md and docs/CHEATSHEET.md for usage."/>
     <License Value="MIT License
 
 Copyright (c) 2024 Iwan Kelaiah
@@ -46,7 +47,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE. "/>
-    <Version Minor="8" Release="5"/>
+    <Version Minor="9"/>
     <Files>
       <Item>
         <Filename Value="..\..\src\ThreadPool.Simple.pas"/>
@@ -55,6 +56,10 @@ SOFTWARE. "/>
       <Item>
         <Filename Value="..\..\src\ThreadPool.Types.pas"/>
         <UnitName Value="ThreadPool.Types"/>
+      </Item>
+      <Item>
+        <Filename Value="..\..\src\ThreadPool.Tasks.pas"/>
+        <UnitName Value="ThreadPool.Tasks"/>
       </Item>
       <Item>
         <Filename Value="..\..\src\ThreadPool.ProducerConsumer.pas"/>
