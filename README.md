@@ -260,6 +260,21 @@ Requirements:
 
 ## Examples
 
+Build every example in Release mode from the repository root:
+
+```powershell
+.\build-examples.ps1
+```
+
+```sh
+sh ./build-examples.sh
+```
+
+Both scripts discover `examples/*/*.lpi` automatically and place the
+executables in the ignored root-level `example-bin/` directory. Pass `Default`
+to build the default mode, or use `-Rebuild` in PowerShell / `--rebuild` in the
+shell script to force a complete rebuild.
+
 | Start with | Demonstrates |
 | --- | --- |
 | [`Starter`](examples/Starter/) | Smallest compilable program with explanatory comments |

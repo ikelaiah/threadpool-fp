@@ -21,7 +21,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="CoordinatedFileBackup"/>
+            <Filename Value="..\..\example-bin\CoordinatedFileBackup"/>
           </Target>
           <SearchPaths>
             <OtherUnitFiles Value="..\..\src"/>
@@ -54,7 +54,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="CoordinatedFileBackup"/>
+      <Filename Value="..\..\example-bin\CoordinatedFileBackup"/>
     </Target>
     <SearchPaths>
       <OtherUnitFiles Value="..\..\src"/>

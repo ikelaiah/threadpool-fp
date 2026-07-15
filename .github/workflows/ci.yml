@@ -71,9 +71,4 @@ jobs:
 
       - name: Build all examples
         shell: bash
-        run: |
-          set -e
-          for lpi in examples/*/*.lpi; do
-            echo "==> Building $lpi"
-            lazbuild "$lpi"
-          done
+        run: sh ./build-examples.sh Release

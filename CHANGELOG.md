@@ -25,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   admission, lifetime, and range regression tests
 - `TaskCoordination` API tour, plus production-shaped coordinated file-backup
   and parallel log-analysis examples
+- Root-level PowerShell and POSIX scripts that build every example into
+  `example-bin/`
 - Complete task API documentation
 - Separate benchmark cases for legacy queueing, tracked submission, individual
   indexed submission, and chunked ranges

@@ -21,7 +21,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="ParallelUrlFetcher"/>
+            <Filename Value="..\..\example-bin\ParallelUrlFetcher"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
@@ -57,7 +57,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="ParallelUrlFetcher"/>
+            <Filename Value="..\..\example-bin\ParallelUrlFetcher"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
@@ -103,7 +103,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="ParallelUrlFetcher"/>
+      <Filename Value="..\..\example-bin\ParallelUrlFetcher"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>

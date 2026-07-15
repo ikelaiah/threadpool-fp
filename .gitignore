@@ -27,6 +27,9 @@ tests/TestRunner
 tests/TestRunner.exe
 tests/lib/
 
+# Consolidated example binary outputs
+/example-bin/
+
 # Debug files
 *.dbg
 *.dcu

@@ -31,6 +31,7 @@ end;
 
 function TaskStateName(AState: TThreadPoolTaskState): string;
 begin
+  Result := 'unknown';
   case AState of
     ttsPending: Result := 'pending';
     ttsRunning: Result := 'running';
@@ -64,6 +65,8 @@ begin
 
   { SubmitRange queues chunks rather than one task per index. Bounds are
     inclusive, and automatic chunking is selected by the default zero size. }
+  for I := 0 to High(Results) do
+    Results[I] := 0;
   RangeTasks := GlobalThreadPool.SubmitRange(
     @ProcessItem, 0, High(Results));
   RangeTasks.WaitFor;

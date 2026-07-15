@@ -21,7 +21,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="TaskCoordination"/>
+            <Filename Value="..\..\example-bin\TaskCoordination"/>
           </Target>
           <SearchPaths>
             <OtherUnitFiles Value="..\..\src"/>
@@ -54,7 +54,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="TaskCoordination"/>
+      <Filename Value="..\..\example-bin\TaskCoordination"/>
     </Target>
     <SearchPaths>
       <OtherUnitFiles Value="..\..\src"/>

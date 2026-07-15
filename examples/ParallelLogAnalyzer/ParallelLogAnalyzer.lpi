@@ -21,7 +21,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="ParallelLogAnalyzer"/>
+            <Filename Value="..\..\example-bin\ParallelLogAnalyzer"/>
           </Target>
           <SearchPaths>
             <OtherUnitFiles Value="..\..\src"/>
@@ -54,7 +54,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="ParallelLogAnalyzer"/>
+      <Filename Value="..\..\example-bin\ParallelLogAnalyzer"/>
     </Target>
     <SearchPaths>
       <OtherUnitFiles Value="..\..\src"/>
