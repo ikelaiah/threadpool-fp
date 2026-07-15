@@ -8,7 +8,9 @@ uses
   {$ENDIF}
   Classes, consoletestrunner,
   ThreadPool.Simple.Tests,
-  ThreadPool.ProducerConsumer.Tests;
+  ThreadPool.ProducerConsumer.Tests,
+  ThreadPool.Tasks.Tests,
+  V08.Compatibility.Tests;
 
 type
 

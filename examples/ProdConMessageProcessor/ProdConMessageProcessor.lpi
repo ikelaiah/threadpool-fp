@@ -21,7 +21,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="ProdConMessageProcessor"/>
+            <Filename Value="..\..\example-bin\ProdConMessageProcessor"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
@@ -56,7 +56,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="ProdConMessageProcessor"/>
+            <Filename Value="..\..\example-bin\ProdConMessageProcessor"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
@@ -97,7 +97,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="ProdConMessageProcessor"/>
+      <Filename Value="..\..\example-bin\ProdConMessageProcessor"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>

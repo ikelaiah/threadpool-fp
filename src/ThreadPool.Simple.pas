@@ -5,7 +5,7 @@ unit ThreadPool.Simple;
 interface
 
 uses
-  Classes, SysUtils, SyncObjs, ThreadPool.Types;
+  Classes, SysUtils, SyncObjs, ThreadPool.Types, ThreadPool.Tasks;
 
 type
   {$REGION 'Internal: Work Item'}
@@ -53,10 +53,10 @@ type
 
   {$REGION 'Public API: TSimpleThreadPool'}
   { Simple thread pool implementation }
-  TSimpleThreadPool = class(TThreadPoolBase)
+  TSimpleThreadPool = class(TThreadPoolBase, IThreadPoolTaskSource)
   private
     FThreads: TThreadList;
-    FWorkItems: array of TSimpleWorkItem;
+    FWorkItems: array of IWorkItem;
     FQueueHead: Integer;
     FQueueTail: Integer;
     FQueueCount: Integer;
@@ -67,8 +67,10 @@ type
     FWorkAvailableEvent: TEvent;
     procedure ClearThreads;
     procedure ClearWorkItems;
-    procedure EnqueueWorkItem(AWorkItem: TSimpleWorkItem);
-    function TryDequeueWorkItem(out AWorkItem: TSimpleWorkItem): Boolean;
+    procedure EnqueueWorkItem(const AWorkItem: IWorkItem);
+    function TryDequeueWorkItem(out AWorkItem: IWorkItem): Boolean;
+    function TrySubmitWorkItem(const AWorkItem: IWorkItem): Boolean;
+    function SubmitRangeWorkItem(const AWorkItem: IWorkItem): Boolean;
     procedure CompleteWorkItem;
     function IsCurrentWorkerThread: Boolean;
   public
@@ -88,6 +90,26 @@ type
       ATimeoutMS: Cardinal): Boolean; overload; override;
     function TryQueue(AMethod: TThreadMethodIndex; AIndex: Integer;
       ATimeoutMS: Cardinal): Boolean; overload; override;
+    function Submit(AProcedure: TThreadProcedure): IThreadPoolTask; overload;
+    function Submit(AMethod: TThreadMethod): IThreadPoolTask; overload;
+    function Submit(AProcedure: TThreadProcedureIndex;
+      AIndex: Integer): IThreadPoolTask; overload;
+    function Submit(AMethod: TThreadMethodIndex;
+      AIndex: Integer): IThreadPoolTask; overload;
+    function TrySubmit(AProcedure: TThreadProcedure; ATimeoutMS: Cardinal;
+      out ATask: IThreadPoolTask): Boolean; overload;
+    function TrySubmit(AMethod: TThreadMethod; ATimeoutMS: Cardinal;
+      out ATask: IThreadPoolTask): Boolean; overload;
+    function TrySubmit(AProcedure: TThreadProcedureIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean; overload;
+    function TrySubmit(AMethod: TThreadMethodIndex; AIndex: Integer;
+      ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean; overload;
+    function SubmitRange(AProcedure: TThreadProcedureIndex;
+      AFirstIndex, ALastIndex: Integer;
+      AChunkSize: Integer = 0): IThreadPoolTaskBatch; overload;
+    function SubmitRange(AMethod: TThreadMethodIndex;
+      AFirstIndex, ALastIndex: Integer;
+      AChunkSize: Integer = 0): IThreadPoolTaskBatch; overload;
     procedure WaitForAll; overload; override;
     function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload; override;
     procedure Shutdown; override;
@@ -171,7 +193,7 @@ end;
 procedure TSimpleWorkerThread.Execute;
 var
   Pool: TSimpleThreadPool;
-  WorkItem: TSimpleWorkItem;
+  WorkItem: IWorkItem;
 begin
   Pool := TSimpleThreadPool(FThreadPool);
 
@@ -185,14 +207,9 @@ begin
     while (not Terminated) and Pool.TryDequeueWorkItem(WorkItem) do
     begin
       try
-        try
-          WorkItem.Execute;
-        except
-          on E: Exception do
-            Pool.SetLastError(E.Message);
-        end;
+        ExecuteThreadPoolWorkItem(WorkItem, @Pool.SetLastError);
       finally
-        WorkItem.Free;
+        WorkItem := nil;
         { Completion accounting is independent of task and callback failures. }
         Pool.CompleteWorkItem;
       end;
@@ -278,9 +295,9 @@ begin
   inherited Destroy;
 end;
 
-procedure TSimpleThreadPool.EnqueueWorkItem(AWorkItem: TSimpleWorkItem);
+procedure TSimpleThreadPool.EnqueueWorkItem(const AWorkItem: IWorkItem);
 var
-  NewItems: array of TSimpleWorkItem;
+  NewItems: array of IWorkItem;
   I, NewCapacity: Integer;
 begin
   NewItems := nil;
@@ -317,7 +334,7 @@ begin
 end;
 
 function TSimpleThreadPool.TryDequeueWorkItem(
-  out AWorkItem: TSimpleWorkItem): Boolean;
+  out AWorkItem: IWorkItem): Boolean;
 begin
   FQueueLock.Enter;
   try
@@ -416,32 +433,178 @@ end;
 
 procedure TSimpleThreadPool.ClearWorkItems;
 var
-  WorkItem: TSimpleWorkItem;
+  WorkItem: IWorkItem;
 begin
   if not Assigned(FQueueLock) then
     Exit;
   while TryDequeueWorkItem(WorkItem) do
-    WorkItem.Free;
+    WorkItem := nil;
   SetLength(FWorkItems, 0);
+end;
+
+function TSimpleThreadPool.TrySubmitWorkItem(
+  const AWorkItem: IWorkItem): Boolean;
+begin
+  BeginQueue;
+  try
+    EnqueueWorkItem(AWorkItem);
+    Result := True;
+  finally
+    EndQueue;
+  end;
+end;
+
+function TSimpleThreadPool.SubmitRangeWorkItem(
+  const AWorkItem: IWorkItem): Boolean;
+begin
+  EnqueueWorkItem(AWorkItem);
+  Result := True;
+end;
+
+function TSimpleThreadPool.Submit(
+  AProcedure: TThreadProcedure): IThreadPoolTask;
+begin
+  if not TrySubmit(AProcedure, 0, Result) then
+    Result := nil;
+end;
+
+function TSimpleThreadPool.Submit(
+  AMethod: TThreadMethod): IThreadPoolTask;
+begin
+  if not TrySubmit(AMethod, 0, Result) then
+    Result := nil;
+end;
+
+function TSimpleThreadPool.Submit(AProcedure: TThreadProcedureIndex;
+  AIndex: Integer): IThreadPoolTask;
+begin
+  if not TrySubmit(AProcedure, AIndex, 0, Result) then
+    Result := nil;
+end;
+
+function TSimpleThreadPool.Submit(AMethod: TThreadMethodIndex;
+  AIndex: Integer): IThreadPoolTask;
+begin
+  if not TrySubmit(AMethod, AIndex, 0, Result) then
+    Result := nil;
+end;
+
+function TSimpleThreadPool.TrySubmit(AProcedure: TThreadProcedure;
+  ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AProcedure, ATask);
+  try
+    Result := TrySubmitWorkItem(WorkItem);
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TSimpleThreadPool.TrySubmit(AMethod: TThreadMethod;
+  ATimeoutMS: Cardinal; out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AMethod, ATask);
+  try
+    Result := TrySubmitWorkItem(WorkItem);
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TSimpleThreadPool.TrySubmit(AProcedure: TThreadProcedureIndex;
+  AIndex: Integer; ATimeoutMS: Cardinal;
+  out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AProcedure, AIndex, ATask);
+  try
+    Result := TrySubmitWorkItem(WorkItem);
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TSimpleThreadPool.TrySubmit(AMethod: TThreadMethodIndex;
+  AIndex: Integer; ATimeoutMS: Cardinal;
+  out ATask: IThreadPoolTask): Boolean;
+var
+  WorkItem: IWorkItem;
+begin
+  ATask := nil;
+  WorkItem := NewTrackedWorkItem(AMethod, AIndex, ATask);
+  try
+    Result := TrySubmitWorkItem(WorkItem);
+  except
+    ATask := nil;
+    raise;
+  end;
+  if not Result then
+    ATask := nil;
+end;
+
+function TSimpleThreadPool.SubmitRange(
+  AProcedure: TThreadProcedureIndex; AFirstIndex, ALastIndex: Integer;
+  AChunkSize: Integer): IThreadPoolTaskBatch;
+begin
+  if GetThreadPoolRangeChunkSize(AFirstIndex, ALastIndex,
+    FThreadCount, AChunkSize) = 0 then
+    Exit(NewThreadPoolTaskBatch);
+  BeginQueue;
+  try
+    Result := NewThreadPoolRangeBatch(AProcedure, AFirstIndex,
+      ALastIndex, FThreadCount, AChunkSize, @SubmitRangeWorkItem);
+  finally
+    EndQueue;
+  end;
+end;
+
+function TSimpleThreadPool.SubmitRange(AMethod: TThreadMethodIndex;
+  AFirstIndex, ALastIndex: Integer;
+  AChunkSize: Integer): IThreadPoolTaskBatch;
+begin
+  if GetThreadPoolRangeChunkSize(AFirstIndex, ALastIndex,
+    FThreadCount, AChunkSize) = 0 then
+    Exit(NewThreadPoolTaskBatch);
+  BeginQueue;
+  try
+    Result := NewThreadPoolRangeBatch(AMethod, AFirstIndex,
+      ALastIndex, FThreadCount, AChunkSize, @SubmitRangeWorkItem);
+  finally
+    EndQueue;
+  end;
 end;
 
 function TSimpleThreadPool.TryQueue(AProcedure: TThreadProcedure;
   ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TSimpleWorkItem;
+  WorkItemObject: TSimpleWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TSimpleWorkItem.Create(Self);
-    try
-      WorkItem.FProcedure := AProcedure;
-      WorkItem.FItemType := witProcedure;
-      EnqueueWorkItem(WorkItem);
-      WorkItem := nil;
-      Result := True;
-    finally
-      WorkItem.Free;
-    end;
+    WorkItemObject := TSimpleWorkItem.Create(Self);
+    WorkItemObject.FProcedure := AProcedure;
+    WorkItemObject.FItemType := witProcedure;
+    WorkItem := WorkItemObject;
+    EnqueueWorkItem(WorkItem);
+    Result := True;
   finally
     EndQueue;
   end;
@@ -450,20 +613,17 @@ end;
 function TSimpleThreadPool.TryQueue(AMethod: TThreadMethod;
   ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TSimpleWorkItem;
+  WorkItemObject: TSimpleWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TSimpleWorkItem.Create(Self);
-    try
-      WorkItem.FMethod := AMethod;
-      WorkItem.FItemType := witMethod;
-      EnqueueWorkItem(WorkItem);
-      WorkItem := nil;
-      Result := True;
-    finally
-      WorkItem.Free;
-    end;
+    WorkItemObject := TSimpleWorkItem.Create(Self);
+    WorkItemObject.FMethod := AMethod;
+    WorkItemObject.FItemType := witMethod;
+    WorkItem := WorkItemObject;
+    EnqueueWorkItem(WorkItem);
+    Result := True;
   finally
     EndQueue;
   end;
@@ -472,21 +632,18 @@ end;
 function TSimpleThreadPool.TryQueue(AProcedure: TThreadProcedureIndex;
   AIndex: Integer; ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TSimpleWorkItem;
+  WorkItemObject: TSimpleWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TSimpleWorkItem.Create(Self);
-    try
-      WorkItem.FProcedureIndex := AProcedure;
-      WorkItem.FIndex := AIndex;
-      WorkItem.FItemType := witProcedureIndex;
-      EnqueueWorkItem(WorkItem);
-      WorkItem := nil;
-      Result := True;
-    finally
-      WorkItem.Free;
-    end;
+    WorkItemObject := TSimpleWorkItem.Create(Self);
+    WorkItemObject.FProcedureIndex := AProcedure;
+    WorkItemObject.FIndex := AIndex;
+    WorkItemObject.FItemType := witProcedureIndex;
+    WorkItem := WorkItemObject;
+    EnqueueWorkItem(WorkItem);
+    Result := True;
   finally
     EndQueue;
   end;
@@ -495,21 +652,18 @@ end;
 function TSimpleThreadPool.TryQueue(AMethod: TThreadMethodIndex;
   AIndex: Integer; ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TSimpleWorkItem;
+  WorkItemObject: TSimpleWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TSimpleWorkItem.Create(Self);
-    try
-      WorkItem.FMethodIndex := AMethod;
-      WorkItem.FIndex := AIndex;
-      WorkItem.FItemType := witMethodIndex;
-      EnqueueWorkItem(WorkItem);
-      WorkItem := nil;
-      Result := True;
-    finally
-      WorkItem.Free;
-    end;
+    WorkItemObject := TSimpleWorkItem.Create(Self);
+    WorkItemObject.FMethodIndex := AMethod;
+    WorkItemObject.FIndex := AIndex;
+    WorkItemObject.FItemType := witMethodIndex;
+    WorkItem := WorkItemObject;
+    EnqueueWorkItem(WorkItem);
+    Result := True;
   finally
     EndQueue;
   end;
