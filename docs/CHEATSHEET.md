@@ -1,6 +1,6 @@
 # ThreadPool for Free Pascal — cheat sheet
 
-Quick reference for v0.9.0. For full contracts, use the
+Quick reference for v0.9.1. For full contracts, use the
 [Simple API](ThreadPool.Simple-API.md) or
 [Producer-Consumer API](ThreadPool.ProducerConsumer-API.md). Task handles,
 batches, ranges, and cancellation are covered by the
@@ -14,6 +14,7 @@ batches, ranges, and cancellation are covered by the
 | A ready-to-use process-wide instance | `GlobalThreadPool` from `ThreadPool.Simple` |
 | Bounded memory and explicit queue saturation handling | `ThreadPool.ProducerConsumer` |
 | Producer backpressure with a submission deadline | `TProducerConsumerThreadPool.TryQueue` |
+| Inspect bounded queue usage | `QueueCount`, `QueueCapacity`, and `QueueLoadFactor` |
 | Observe or cancel one pending task | `Submit` and `IThreadPoolTask` |
 | Coordinate related task handles | `IThreadPoolTaskBatch` |
 | Process an integer range efficiently | `SubmitRange` |
@@ -206,5 +207,5 @@ On Windows, run `tests/TestRunner.exe` in the final command.
 
 - [README](../README.md)
 - [Examples](../examples/)
-- [v0.9.0 release notes](release-notes-v0.9.0.md)
+- [v0.9.1 release notes](release-notes-v0.9.1.md)
 - [Changelog](../CHANGELOG.md)

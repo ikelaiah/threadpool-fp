@@ -66,4 +66,4 @@ never passing, not regressions introduced in this release.
 
 ### Full changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the complete version history.
+See [CHANGELOG.md](../CHANGELOG.md) for the complete version history.
