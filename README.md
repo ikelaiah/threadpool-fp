@@ -30,7 +30,9 @@ Most applications should start with `ThreadPool.Simple`.
 [Cheat sheet](docs/CHEATSHEET.md) · [API reference](#documentation) ·
 [v0.9.1 release notes](docs/release-notes-v0.9.1.md)
 
-## Quick start
+<a id="quick-start"></a>
+
+## 🚀 Quick start
 
 ```pascal
 program HelloThreadPool;
@@ -65,7 +67,7 @@ change between runs. `GlobalThreadPool` is managed by the unit; do not free it.
 > On Linux and macOS, `cthreads` must be the first unit in the program's `uses`
 > clause. A program can compile without it and still fail when threads start.
 
-## Installation
+## 📦 Installation
 
 The library has no external dependencies.
 
@@ -78,7 +80,7 @@ The library has no external dependencies.
 Requirements are Free Pascal 3.2.2 or later, plus Lazarus 4.0 or later when
 using the package or project files.
 
-## Choose a pool
+## 🧭 Choose a pool
 
 | If you need... | Start with... |
 | --- | --- |
@@ -90,7 +92,7 @@ using the package or project files.
 The Simple pool uses a dynamically growing queue. Choose the bounded pool only
 when queue growth must be controlled or producers need a submission deadline.
 
-## Common recipes
+## 🧰 Common recipes
 
 ### Observe one task
 
@@ -136,7 +138,7 @@ argument is the requested worker count. `0` selects the processor count, with
 the library's minimum of four workers; positive requests are capped at twice
 the processor count before that minimum is applied.
 
-## Five rules worth knowing
+## ⚠️ Five rules worth knowing
 
 - Call `WaitForAll` before freeing objects referenced by queued methods.
 - `WaitForAll` does not stop other producer threads from submitting more work.
@@ -149,7 +151,7 @@ the processor count before that minimum is applied.
 The [cheat sheet](docs/CHEATSHEET.md) covers callback forms, timeout values,
 error handling, cancellation, and lifecycle rules on one page.
 
-## Examples
+## 🧪 Examples
 
 Start with these:
 
@@ -175,7 +177,9 @@ sh ./build-examples.sh
 
 Executables are written to the ignored `example-bin/` directory.
 
-## Documentation
+<a id="documentation"></a>
+
+## 📚 Documentation
 
 | Document | Use it for |
 | --- | --- |
@@ -187,7 +191,7 @@ Executables are written to the ignored `example-bin/` directory.
 | [Producer-Consumer internals](docs/ThreadPool.ProducerConsumer-Technical.md) | Bounded-queue implementation |
 | [Changelog](CHANGELOG.md) | Version history |
 
-## Build and test
+## 🛠️ Build and test
 
 ```bash
 lazbuild package/lazarus/threadpool_fp.lpk
