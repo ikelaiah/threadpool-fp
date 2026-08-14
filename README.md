@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/threadpool-banner.png" alt="ThreadPool for Free Pascal — concurrent task queue splitting across parallel worker threads" width="100%">
+  <img src="docs/assets/threadpool-banner.svg" alt="ThreadPool for Free Pascal — concurrent task queue splitting across parallel worker threads" width="100%">
 </p>
 
-# ThreadPool for Free Pascal
+# 🧵ThreadPool for Free Pascal
 
 [![Version](https://img.shields.io/badge/version-0.9.1-8B5CF6.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-1E3A8A.svg)](LICENSE.md)
