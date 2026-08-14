@@ -399,12 +399,12 @@ begin
   // host's core count.
   TestPool := TProducerConsumerThreadPool.Create(1, QUEUE_SIZE);
   try
-    Config := TestPool.WorkQueue.BackpressureConfig;
+    Config := TestPool.BackpressureConfig;
     Config.MaxAttempts := 1;
     Config.LowLoadDelay := 0;
     Config.MediumLoadDelay := 0;
     Config.HighLoadDelay := 0;
-    TestPool.WorkQueue.BackpressureConfig := Config;
+    TestPool.BackpressureConfig := Config;
 
     ExceptionRaised := False;
     // ThreadCount reflects the enforced minimum; +QUEUE_SIZE in-flight slots,
@@ -484,7 +484,7 @@ begin
   LogTest('Test11_BackpressureConfig starting...');
   
   // Test default configuration
-  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  Config := FThreadPool.BackpressureConfig;
   AssertEquals('Default low threshold', 0.5, Config.LowLoadThreshold);
   AssertEquals('Default medium threshold', 0.7, Config.MediumLoadThreshold);
   AssertEquals('Default high threshold', 0.9, Config.HighLoadThreshold);
@@ -497,9 +497,9 @@ begin
   Config.MediumLoadDelay := 20;
   Config.HighLoadDelay := 50;
   
-  FThreadPool.WorkQueue.BackpressureConfig := Config;
+  FThreadPool.BackpressureConfig := Config;
   
-  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  Config := FThreadPool.BackpressureConfig;
   AssertEquals('Modified low threshold', 0.6, Config.LowLoadThreshold);
   AssertEquals('Modified medium threshold', 0.8, Config.MediumLoadThreshold);
   AssertEquals('Modified high threshold', 0.95, Config.HighLoadThreshold);

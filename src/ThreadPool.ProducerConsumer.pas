@@ -69,10 +69,13 @@ type
     procedure WakeAll;
     function GetCount: integer;
     function GetCapacity: integer;
+    function GetBackpressureConfig: TBackpressureConfig;
+    procedure SetBackpressureConfig(const AValue: TBackpressureConfig);
     procedure Clear;
     property Capacity: integer read GetCapacity;
     property LoadFactor: Double read GetLoadFactor;
-    property BackpressureConfig: TBackpressureConfig read FBackpressureConfig write FBackpressureConfig;
+    property BackpressureConfig: TBackpressureConfig read GetBackpressureConfig
+      write SetBackpressureConfig;
   end;
 
   {$ENDREGION}
@@ -105,6 +108,8 @@ type
     function GetQueueCount: integer;
     function GetQueueCapacity: integer;
     function GetQueueLoadFactor: Double;
+    function GetBackpressureConfig: TBackpressureConfig;
+    procedure SetBackpressureConfig(const AValue: TBackpressureConfig);
   public
     constructor Create(AThreadCount: Integer = 0;
       AQueueSize: Integer = 1024); reintroduce;
@@ -152,6 +157,8 @@ type
     property QueueCount: integer read GetQueueCount;
     property QueueCapacity: integer read GetQueueCapacity;
     property QueueLoadFactor: Double read GetQueueLoadFactor;
+    property BackpressureConfig: TBackpressureConfig
+      read GetBackpressureConfig write SetBackpressureConfig;
   end;
 
   {$ENDREGION}
@@ -595,6 +602,18 @@ begin
   Result := FWorkQueue.GetLoadFactor;
 end;
 
+function TProducerConsumerThreadPool.GetBackpressureConfig:
+  TBackpressureConfig;
+begin
+  Result := FWorkQueue.GetBackpressureConfig;
+end;
+
+procedure TProducerConsumerThreadPool.SetBackpressureConfig(
+  const AValue: TBackpressureConfig);
+begin
+  FWorkQueue.SetBackpressureConfig(AValue);
+end;
+
 {$ENDREGION}
 
 {$REGION 'TProducerConsumerWorkItem'}
@@ -647,13 +666,15 @@ end;
 
 function TThreadSafeQueue.GetDefaultTimeout: Cardinal;
 var
+  Config: TBackpressureConfig;
   Attempts: Integer;
   Total: QWord;
 begin
-  Attempts := FBackpressureConfig.MaxAttempts;
+  Config := GetBackpressureConfig;
+  Attempts := Config.MaxAttempts;
   if Attempts <= 1 then
     Exit(0);
-  Total := QWord(Attempts) * QWord(Max(0, FBackpressureConfig.HighLoadDelay)) +
+  Total := QWord(Attempts) * QWord(Max(0, Config.HighLoadDelay)) +
     QWord(Attempts - 1) * 10;
   if Total > High(Cardinal) - 1 then
     Result := High(Cardinal) - 1
@@ -707,6 +728,27 @@ end;
 function TThreadSafeQueue.GetCapacity: integer;
 begin
   Result := FCapacity;
+end;
+
+function TThreadSafeQueue.GetBackpressureConfig: TBackpressureConfig;
+begin
+  FLock.Enter;
+  try
+    Result := FBackpressureConfig;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TThreadSafeQueue.SetBackpressureConfig(
+  const AValue: TBackpressureConfig);
+begin
+  FLock.Enter;
+  try
+    FBackpressureConfig := AValue;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 procedure TThreadSafeQueue.Clear;
