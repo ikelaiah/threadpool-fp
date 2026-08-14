@@ -13,7 +13,7 @@ bounded producers wait for a not-full signal.
 
 - Owns the queue, worker threads, completion event, and pending-work counter.
 - Applies the lifecycle contract implemented by `TThreadPoolBase`.
-- Wraps all four existing task signatures in reference-counted work items.
+- Wraps all four task signatures with the shared internal callback work item.
 - Counts a task before it becomes visible to workers and decrements it in a
   worker `finally` block.
 

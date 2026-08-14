@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-08-14
+
+### Added
+
+- Pool-level `QueueCount`, `QueueCapacity`, and `QueueLoadFactor` properties for
+  safe bounded-queue monitoring
+- Pool-level, lock-protected `BackpressureConfig` access
+- A curated examples guide organized by learning goal
+- Focused v0.9.1 release and pull-request notes
+
+### Changed
+
+- Reworked the README into a shorter, value-first introduction with one default
+  path, small recipes, and links to detailed contracts
+- Reduced the Starter example to the smallest complete queue-and-wait program
+- Consolidated duplicate callback work-item implementations in the internal
+  `ThreadPool.Internal.WorkItems` unit while preserving compatibility classes
+- Moved the completed v0.9.0 development plan into the documentation history
+- Moved throughput checks out of the unit-test contract; benchmarks remain the
+  canonical performance harness
+- Made inherited thread-count and error properties explicit on the shared base
+  class and removed pass-through overrides
+
+### Fixed
+
+- Documented that mutating the legacy public `WorkQueue` bypasses completion
+  accounting and can invalidate `WaitForAll`
+- Corrected the README's worker-count explanation and stale Starter error text
+- Fixed the v0.5.0 release-note link to the root changelog
+- Removed an obsolete, inactive test suite that referenced the retired
+  `ThreadPool` unit
+
+### Compatibility
+
+- Existing queue, task, lifecycle, error, constructor, `GlobalThreadPool`,
+  `WorkQueue`, and backpressure symbols remain source-compatible
+- `WorkQueue` remains available for v0.x compatibility; new code should use the
+  pool-level metrics and `BackpressureConfig` property
+
 ## [0.9.0] - 2026-07-16
 
 ### Added

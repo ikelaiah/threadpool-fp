@@ -120,7 +120,6 @@ type
   protected
     FLastError: string;
     FThreadCount: Integer;
-    FShutdown: Boolean;
     { Collected error messages and the lock guarding them plus FLastError and
       FOnError. This lock is internal to the base class and independent of any
       lock a subclass holds around its own SetLastError call. }
@@ -170,6 +169,8 @@ type
 
     { All task error messages captured since the last ClearErrors/ClearLastError,
       oldest first, capped at MAX_STORED_ERRORS. }
+    property LastError: string read GetLastError;
+    property ThreadCount: Integer read GetThreadCount;
     property Errors: TStringArray read GetErrors;
     property ErrorCount: Integer read GetErrorCount;
     { Optional callback fired from a worker thread whenever a task raises. }
@@ -184,7 +185,6 @@ implementation
 constructor TThreadPoolBase.Create(AThreadCount: Integer);
 begin
   inherited Create;
-  FShutdown := False;
   FLastError := '';
   FErrors := TStringList.Create;
   FErrorsLock := TCriticalSection.Create;
@@ -205,7 +205,6 @@ end;
 
 destructor TThreadPoolBase.Destroy;
 begin
-  FShutdown := True;
   FStoppedEvent.Free;
   FNoSubmittersEvent.Free;
   FLifecycleLock.Free;
@@ -279,7 +278,6 @@ begin
     if Result then
     begin
       FState := tpsDraining;
-      FShutdown := True;
     end;
   finally
     FLifecycleLock.Leave;

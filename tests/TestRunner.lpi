@@ -97,11 +97,6 @@
         <Filename Value="TestRunner.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit>
-      <Unit>
-        <Filename Value="threadpooltests.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="ThreadPoolTests"/>
-      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

@@ -53,7 +53,7 @@ type
     procedure Test11_BackpressureConfig;
     procedure Test12_LoadFactorCalculation;
     procedure Test13_BackpressureBehavior;
-    procedure Test14_ParallelScaling;
+    procedure Test14_PoolExposesReadOnlyQueueMetrics;
 
     // Error-collection API (v0.7.0)
     procedure Test15_ErrorsCollectionCapturesAll;
@@ -399,12 +399,12 @@ begin
   // host's core count.
   TestPool := TProducerConsumerThreadPool.Create(1, QUEUE_SIZE);
   try
-    Config := TestPool.WorkQueue.BackpressureConfig;
+    Config := TestPool.BackpressureConfig;
     Config.MaxAttempts := 1;
     Config.LowLoadDelay := 0;
     Config.MediumLoadDelay := 0;
     Config.HighLoadDelay := 0;
-    TestPool.WorkQueue.BackpressureConfig := Config;
+    TestPool.BackpressureConfig := Config;
 
     ExceptionRaised := False;
     // ThreadCount reflects the enforced minimum; +QUEUE_SIZE in-flight slots,
@@ -484,7 +484,7 @@ begin
   LogTest('Test11_BackpressureConfig starting...');
   
   // Test default configuration
-  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  Config := FThreadPool.BackpressureConfig;
   AssertEquals('Default low threshold', 0.5, Config.LowLoadThreshold);
   AssertEquals('Default medium threshold', 0.7, Config.MediumLoadThreshold);
   AssertEquals('Default high threshold', 0.9, Config.HighLoadThreshold);
@@ -497,9 +497,9 @@ begin
   Config.MediumLoadDelay := 20;
   Config.HighLoadDelay := 50;
   
-  FThreadPool.WorkQueue.BackpressureConfig := Config;
+  FThreadPool.BackpressureConfig := Config;
   
-  Config := FThreadPool.WorkQueue.BackpressureConfig;
+  Config := FThreadPool.BackpressureConfig;
   AssertEquals('Modified low threshold', 0.6, Config.LowLoadThreshold);
   AssertEquals('Modified medium threshold', 0.8, Config.MediumLoadThreshold);
   AssertEquals('Modified high threshold', 0.95, Config.HighLoadThreshold);
@@ -515,7 +515,7 @@ begin
   LogTest('Test12_LoadFactorCalculation starting...');
 
   // Empty queue
-  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  LoadFactor := FThreadPool.QueueLoadFactor;
   AssertEquals('Empty queue load factor', 0.0, LoadFactor);
 
   // Queue more tasks than there are threads so the queue buffer always has
@@ -525,11 +525,11 @@ begin
   for I := 1 to 50 do
     FThreadPool.Queue(@SleepTask);
 
-  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  LoadFactor := FThreadPool.QueueLoadFactor;
   AssertTrue('Partial queue load factor', (LoadFactor > 0.0) and (LoadFactor < 1.0));
   
   FThreadPool.WaitForAll;
-  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  LoadFactor := FThreadPool.QueueLoadFactor;
   AssertEquals('Empty queue after processing', 0.0, LoadFactor);
   
   LogTest('Test12_LoadFactorCalculation finished');
@@ -568,60 +568,6 @@ begin
     Pool.Free;
   end;
   LogTest('Test13_BackpressureBehavior finished');
-end;
-
-{ Verify that independent tasks scale across the fixed worker set. }
-procedure TTestProducerConsumerThreadPool.Test14_ParallelScaling;
-const
-  LOW_LOAD_TASKS = 1;     // Single task
-  HIGH_LOAD_TASKS = 32;   // Many more tasks
-var
-  StartTime: TDateTime;
-  LowLoadTime: Int64;
-  HighLoadTime: Int64;
-  I: Integer;
-  NormalizedLowTime: Double;
-  NormalizedHighTime: Double;
-  Ratio: Double;
-begin
-  LogTest('Test14_ParallelScaling starting...');
-  LogTest(Format('Thread count: %d', [FThreadPool.ThreadCount]));
-  
-  // Measure low load (single task)
-  LogTest('Starting low load test...');
-  StartTime := Now;
-  for I := 1 to LOW_LOAD_TASKS do
-    FThreadPool.Queue(@LongTask);
-  FThreadPool.WaitForAll;
-  LowLoadTime := MilliSecondsBetween(Now, StartTime);
-  LogTest(Format('Low load completed in %d ms', [LowLoadTime]));
-
-  Sleep(500); // Longer delay between tests
-
-  // Measure high load
-  LogTest('Starting high load test...');
-  StartTime := Now;
-  for I := 1 to HIGH_LOAD_TASKS do
-    FThreadPool.Queue(@LongTask);
-  FThreadPool.WaitForAll;
-  HighLoadTime := MilliSecondsBetween(Now, StartTime);
-  LogTest(Format('High load completed in %d ms', [HighLoadTime]));
-
-  // Calculate normalized times
-  NormalizedLowTime := LowLoadTime / LOW_LOAD_TASKS;
-  NormalizedHighTime := HighLoadTime / HIGH_LOAD_TASKS;
-  // Invert the ratio to measure slowdown factor
-  Ratio := NormalizedLowTime / NormalizedHighTime;
-
-  LogTest(Format('Low load time: %d ms for %d tasks (%.2f ms/task)',
-    [LowLoadTime, LOW_LOAD_TASKS, NormalizedLowTime]));
-  LogTest(Format('High load time: %d ms for %d tasks (%.2f ms/task)',
-    [HighLoadTime, HIGH_LOAD_TASKS, NormalizedHighTime]));
-  LogTest(Format('Performance ratio: %.2fx faster under low load', [Ratio]));
-
-  AssertTrue('Low load should be proportionally faster', Ratio > 1.5);
-
-  LogTest('Test14_ParallelScaling finished');
 end;
 
 procedure TTestProducerConsumerThreadPool.Test15_ErrorsCollectionCapturesAll;
@@ -819,6 +765,35 @@ begin
     Ord(tpsAccepting), Ord(FThreadPool.State));
   AssertTrue('Rejected worker shutdown should be captured as a task error',
     Pos('cannot be called from a pool worker', FThreadPool.LastError) > 0);
+end;
+
+procedure TTestProducerConsumerThreadPool.Test14_PoolExposesReadOnlyQueueMetrics;
+var
+  Pool: TProducerConsumerThreadPool;
+  I: Integer;
+begin
+  FGateEvent.ResetEvent;
+  FAllStartedEvent.ResetEvent;
+  FStartedCount := 0;
+  Pool := TProducerConsumerThreadPool.Create(4, 1);
+  try
+    for I := 1 to 4 do
+      Pool.Queue(@GateTask);
+    AssertEquals('All workers should be occupied', Ord(wrSignaled),
+      Ord(FAllStartedEvent.WaitFor(2000)));
+
+    Pool.Queue(@GateTask);
+    AssertEquals('Configured capacity should be available from the pool',
+      1, Pool.QueueCapacity);
+    AssertEquals('Pending queue count should be available from the pool',
+      1, Pool.QueueCount);
+    AssertEquals('A full queue should report a load factor of one',
+      1.0, Pool.QueueLoadFactor);
+  finally
+    FGateEvent.SetEvent;
+    Pool.WaitForAll;
+    Pool.Free;
+  end;
 end;
 
 initialization

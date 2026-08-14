@@ -220,7 +220,11 @@ property LastError: string;           // read-only; last worker exception messag
 property Errors: TStringArray;        // read-only; all captured messages (capped)
 property ErrorCount: Integer;         // read-only; count of messages in Errors
 property OnError: TThreadPoolErrorEvent; // fired (on a worker thread) per failed task
-property WorkQueue: TThreadSafeQueue; // access to queue for monitoring/config
+property QueueCount: Integer;             // read-only; queued items waiting for workers
+property QueueCapacity: Integer;          // read-only; configured queue capacity
+property QueueLoadFactor: Double;         // read-only; QueueCount / QueueCapacity
+property BackpressureConfig: TBackpressureConfig; // thread-safe compatibility config
+property WorkQueue: TThreadSafeQueue;     // legacy compatibility access; avoid in new code
 property State: TThreadPoolState;      // accepting, draining, or stopped
 
 function TryQueue(...; ATimeoutMS: Cardinal): Boolean; // four matching overloads
@@ -255,18 +259,24 @@ type
   end;
 ```
 
-Read and write the config through `WorkQueue.BackpressureConfig`:
+Read and write the compatibility config directly through the pool:
 
 ```pascal
 var
   Config: TBackpressureConfig;
 begin
-  Config := Pool.WorkQueue.BackpressureConfig;
+  Config := Pool.BackpressureConfig;
   Config.MaxAttempts   := 3;
   Config.HighLoadDelay := 200;
-  Pool.WorkQueue.BackpressureConfig := Config;
+  Pool.BackpressureConfig := Config;
 end;
 ```
+
+`WorkQueue` remains public so existing v0.x programs compile, but new code
+should not use it. Calling its mutating methods (`TryEnqueue`, `TryDequeue`, or
+`Clear`) bypasses the pool's completion accounting and can invalidate
+`WaitForAll`. Use `QueueCount`, `QueueCapacity`, `QueueLoadFactor`, and
+`BackpressureConfig` on the pool instead.
 
 ---
 

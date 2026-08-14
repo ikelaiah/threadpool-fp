@@ -5,26 +5,15 @@ unit ThreadPool.Simple;
 interface
 
 uses
-  Classes, SysUtils, SyncObjs, ThreadPool.Types, ThreadPool.Tasks;
+  Classes, SysUtils, SyncObjs, ThreadPool.Types, ThreadPool.Tasks,
+  ThreadPool.Internal.WorkItems;
 
 type
   {$REGION 'Internal: Work Item'}
   { Simple work item implementation }
-  TSimpleWorkItem = class(TInterfacedObject, IWorkItem)
-  private
-    FProcedure: TThreadProcedure;
-    FMethod: TThreadMethod;
-    FProcedureIndex: TThreadProcedureIndex;
-    FMethodIndex: TThreadMethodIndex;
-    FIndex: Integer;
-    FItemType: TWorkItemType;
-    FThreadPool: TObject;
+  TSimpleWorkItem = class(TThreadPoolCallbackWorkItem)
   public
     constructor Create(AThreadPool: TObject);
-    destructor Destroy; override;
-    { IWorkItem implementation }
-    procedure Execute;
-    function GetItemType: Integer;
   end;
 
   {$ENDREGION}
@@ -113,10 +102,6 @@ type
     procedure WaitForAll; overload; override;
     function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload; override;
     procedure Shutdown; override;
-    function GetThreadCount: Integer; override;
-    function GetLastError: string; override;
-    property ThreadCount: Integer read GetThreadCount;
-    property LastError: string read GetLastError;
   end;
 
   {$ENDREGION}
@@ -225,30 +210,7 @@ end;
 
 constructor TSimpleWorkItem.Create(AThreadPool: TObject);
 begin
-  inherited Create;
-  FThreadPool := AThreadPool;
-  FItemType := witProcedure;
-  FIndex := 0;
-end;
-
-destructor TSimpleWorkItem.Destroy;
-begin
-  inherited;
-end;
-
-procedure TSimpleWorkItem.Execute;
-begin
-  case FItemType of
-    witProcedure: if Assigned(FProcedure) then FProcedure;
-    witMethod: if Assigned(FMethod) then FMethod;
-    witProcedureIndex: if Assigned(FProcedureIndex) then FProcedureIndex(FIndex);
-    witMethodIndex: if Assigned(FMethodIndex) then FMethodIndex(FIndex);
-  end;
-end;
-
-function TSimpleWorkItem.GetItemType: Integer;
-begin
-  Result := Ord(FItemType);
+  inherited Create(TThreadProcedure(nil));
 end;
 
 {$ENDREGION}
@@ -594,15 +556,11 @@ end;
 function TSimpleThreadPool.TryQueue(AProcedure: TThreadProcedure;
   ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItemObject: TSimpleWorkItem;
   WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItemObject := TSimpleWorkItem.Create(Self);
-    WorkItemObject.FProcedure := AProcedure;
-    WorkItemObject.FItemType := witProcedure;
-    WorkItem := WorkItemObject;
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AProcedure);
     EnqueueWorkItem(WorkItem);
     Result := True;
   finally
@@ -613,15 +571,11 @@ end;
 function TSimpleThreadPool.TryQueue(AMethod: TThreadMethod;
   ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItemObject: TSimpleWorkItem;
   WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItemObject := TSimpleWorkItem.Create(Self);
-    WorkItemObject.FMethod := AMethod;
-    WorkItemObject.FItemType := witMethod;
-    WorkItem := WorkItemObject;
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AMethod);
     EnqueueWorkItem(WorkItem);
     Result := True;
   finally
@@ -632,16 +586,11 @@ end;
 function TSimpleThreadPool.TryQueue(AProcedure: TThreadProcedureIndex;
   AIndex: Integer; ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItemObject: TSimpleWorkItem;
   WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItemObject := TSimpleWorkItem.Create(Self);
-    WorkItemObject.FProcedureIndex := AProcedure;
-    WorkItemObject.FIndex := AIndex;
-    WorkItemObject.FItemType := witProcedureIndex;
-    WorkItem := WorkItemObject;
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AProcedure, AIndex);
     EnqueueWorkItem(WorkItem);
     Result := True;
   finally
@@ -652,16 +601,11 @@ end;
 function TSimpleThreadPool.TryQueue(AMethod: TThreadMethodIndex;
   AIndex: Integer; ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItemObject: TSimpleWorkItem;
   WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItemObject := TSimpleWorkItem.Create(Self);
-    WorkItemObject.FMethodIndex := AMethod;
-    WorkItemObject.FIndex := AIndex;
-    WorkItemObject.FItemType := witMethodIndex;
-    WorkItem := WorkItemObject;
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AMethod, AIndex);
     EnqueueWorkItem(WorkItem);
     Result := True;
   finally
@@ -699,16 +643,6 @@ end;
 function TSimpleThreadPool.WaitForAll(ATimeoutMS: Cardinal): Boolean;
 begin
   Result := FWorkItemEvent.WaitFor(ATimeoutMS) = wrSignaled;
-end;
-
-function TSimpleThreadPool.GetThreadCount: Integer;
-begin
-  Result := inherited GetThreadCount;
-end;
-
-function TSimpleThreadPool.GetLastError: string;
-begin
-  Result := inherited GetLastError;
 end;
 
 {$ENDREGION}

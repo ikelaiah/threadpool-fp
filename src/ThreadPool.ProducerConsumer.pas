@@ -5,7 +5,8 @@ unit ThreadPool.ProducerConsumer;
 interface
 
 uses
-  Classes, SysUtils, Math, ThreadPool.Types, ThreadPool.Tasks, SyncObjs;
+  Classes, SysUtils, Math, ThreadPool.Types, ThreadPool.Tasks, SyncObjs,
+  ThreadPool.Internal.WorkItems;
 
 var
   DEBUG_LOG: Boolean = False;  // Opt-in only; disabled by default
@@ -52,7 +53,6 @@ type
     FLock: TCriticalSection;
     FNotEmptyEvent: TEvent;
     FNotFullEvent: TEvent;
-    FLastEnqueueTime: TDateTime;
     FBackpressureConfig: TBackpressureConfig;
   protected
     function GetLoadFactor: Double;
@@ -68,29 +68,23 @@ type
     function WaitForItem(ATimeoutMS: Cardinal): Boolean;
     procedure WakeAll;
     function GetCount: integer;
+    function GetCapacity: integer;
+    function GetBackpressureConfig: TBackpressureConfig;
+    procedure SetBackpressureConfig(const AValue: TBackpressureConfig);
     procedure Clear;
+    property Capacity: integer read GetCapacity;
     property LoadFactor: Double read GetLoadFactor;
-    property BackpressureConfig: TBackpressureConfig read FBackpressureConfig write FBackpressureConfig;
+    property BackpressureConfig: TBackpressureConfig read GetBackpressureConfig
+      write SetBackpressureConfig;
   end;
 
   {$ENDREGION}
 
   {$REGION 'Internal: Work Item'}
   { Work item implementation for producer-consumer pattern }
-  TProducerConsumerWorkItem = class(TInterfacedObject, IWorkItem)
-  private
-    FProcedure: TThreadProcedure;
-    FMethod: TThreadMethod;
-    FProcedureIndex: TThreadProcedureIndex;
-    FMethodIndex: TThreadMethodIndex;
-    FIndex: integer;
-    FItemType: TWorkItemType;
-    FThreadPool: TObject;
+  TProducerConsumerWorkItem = class(TThreadPoolCallbackWorkItem)
   public
     constructor Create(AThreadPool: TObject);
-    { IWorkItem implementation }
-    procedure Execute;
-    function GetItemType: integer;
   end;
 
   {$ENDREGION}
@@ -100,11 +94,10 @@ type
   TProducerConsumerThreadPool = class(TThreadPoolBase, IThreadPoolTaskSource)
   private
     FThreads: TThreadList;
-    FWorkQueue: TThreadSafeQueue;  // Use our custom thread-safe queue
+    FWorkQueue: TThreadSafeQueue;
     FCompletionEvent: TEvent;
     FWorkItemCount: integer;
     FWorkItemLock: TCriticalSection;
-    FLocalThreadCount: integer;
 
     procedure ClearThreads;
     function TryQueueWorkItem(WorkItem: IWorkItem;
@@ -112,12 +105,15 @@ type
     function SubmitRangeWorkItem(const AWorkItem: IWorkItem): Boolean;
     procedure CompleteWorkItem;
     function IsCurrentWorkerThread: Boolean;
+    function GetQueueCount: integer;
+    function GetQueueCapacity: integer;
+    function GetQueueLoadFactor: Double;
+    function GetBackpressureConfig: TBackpressureConfig;
+    procedure SetBackpressureConfig(const AValue: TBackpressureConfig);
   public
     constructor Create(AThreadCount: Integer = 0;
       AQueueSize: Integer = 1024); reintroduce;
     destructor Destroy; override;
-    function GetThreadCount: integer; override;
-    function GetLastError: string; override;
 
     { IThreadPool implementation }
     procedure Queue(AProcedure: TThreadProcedure); override;
@@ -155,9 +151,14 @@ type
     procedure WaitForAll; overload; override;
     function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload; override;
     procedure Shutdown; override;
-    property WorkQueue: TThreadSafeQueue read FWorkQueue;  // Added this line
-    property ThreadCount: integer read GetThreadCount;
-    property LastError: string read GetLastError;
+    { Legacy compatibility access. New code should use the read-only queue
+      metrics below; mutating WorkQueue bypasses pool completion accounting. }
+    property WorkQueue: TThreadSafeQueue read FWorkQueue;
+    property QueueCount: integer read GetQueueCount;
+    property QueueCapacity: integer read GetQueueCapacity;
+    property QueueLoadFactor: Double read GetQueueLoadFactor;
+    property BackpressureConfig: TBackpressureConfig
+      read GetBackpressureConfig write SetBackpressureConfig;
   end;
 
   {$ENDREGION}
@@ -187,10 +188,7 @@ begin
   if AQueueSize <= 0 then
     raise EArgumentOutOfRangeException.Create('Queue size must be greater than zero');
 
-  // Set the local thread count to the base thread count
-  FLocalThreadCount := FThreadCount;
-
-  DebugLog('Actual thread count: ' + IntToStr(FLocalThreadCount));
+  DebugLog('Actual thread count: ' + IntToStr(FThreadCount));
 
   FThreads := TThreadList.Create;
   FWorkQueue := TThreadSafeQueue.Create(AQueueSize);
@@ -200,7 +198,7 @@ begin
   FLastError := '';
 
   // Create worker threads
-  for I := 1 to FLocalThreadCount do
+  for I := 1 to FThreadCount do
   begin
     DebugLog('Creating worker thread ' + IntToStr(I));
     Thread := TProducerConsumerWorkerThread.Create(Self);
@@ -220,17 +218,6 @@ begin
   inherited;
 end;
 
-{
-  Note:
-  Bounded wait logic is in one place only: TThreadSafeQueue.TryEnqueue
-
-  Benefits of using IWorkItem:
-  - Dependency Inversion: We depend on abstractions (interfaces) rather than concrete implementations
-  - Loose Coupling: The method doesn't need to know about the specific work item implementation
-  - Flexibility: We can add new work item types without modifying this method
-  - Testability: Easier to mock work items in unit tests
-  - Interface Segregation: We only need the methods defined in IWorkItem
-}
 function TProducerConsumerThreadPool.TryQueueWorkItem(WorkItem: IWorkItem;
   ATimeoutMS: Cardinal): Boolean;
 begin
@@ -441,16 +428,12 @@ end;
 function TProducerConsumerThreadPool.TryQueue(AProcedure: TThreadProcedure;
   ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TProducerConsumerWorkItem;
-  WorkItemIntf: IWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TProducerConsumerWorkItem.Create(Self);
-    WorkItem.FProcedure := AProcedure;
-    WorkItem.FItemType := witProcedure;
-    WorkItemIntf := WorkItem;
-    Result := TryQueueWorkItem(WorkItemIntf, ATimeoutMS);
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AProcedure);
+    Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
   finally
     EndQueue;
   end;
@@ -459,16 +442,12 @@ end;
 function TProducerConsumerThreadPool.TryQueue(AMethod: TThreadMethod;
   ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TProducerConsumerWorkItem;
-  WorkItemIntf: IWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TProducerConsumerWorkItem.Create(Self);
-    WorkItem.FMethod := AMethod;
-    WorkItem.FItemType := witMethod;
-    WorkItemIntf := WorkItem;
-    Result := TryQueueWorkItem(WorkItemIntf, ATimeoutMS);
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AMethod);
+    Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
   finally
     EndQueue;
   end;
@@ -478,17 +457,12 @@ function TProducerConsumerThreadPool.TryQueue(
   AProcedure: TThreadProcedureIndex; AIndex: Integer;
   ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TProducerConsumerWorkItem;
-  WorkItemIntf: IWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TProducerConsumerWorkItem.Create(Self);
-    WorkItem.FProcedureIndex := AProcedure;
-    WorkItem.FIndex := AIndex;
-    WorkItem.FItemType := witProcedureIndex;
-    WorkItemIntf := WorkItem;
-    Result := TryQueueWorkItem(WorkItemIntf, ATimeoutMS);
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AProcedure, AIndex);
+    Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
   finally
     EndQueue;
   end;
@@ -497,17 +471,12 @@ end;
 function TProducerConsumerThreadPool.TryQueue(AMethod: TThreadMethodIndex;
   AIndex: Integer; ATimeoutMS: Cardinal): Boolean;
 var
-  WorkItem: TProducerConsumerWorkItem;
-  WorkItemIntf: IWorkItem;
+  WorkItem: IWorkItem;
 begin
   BeginQueue;
   try
-    WorkItem := TProducerConsumerWorkItem.Create(Self);
-    WorkItem.FMethodIndex := AMethod;
-    WorkItem.FIndex := AIndex;
-    WorkItem.FItemType := witMethodIndex;
-    WorkItemIntf := WorkItem;
-    Result := TryQueueWorkItem(WorkItemIntf, ATimeoutMS);
+    WorkItem := TThreadPoolCallbackWorkItem.Create(AMethod, AIndex);
+    Result := TryQueueWorkItem(WorkItem, ATimeoutMS);
   finally
     EndQueue;
   end;
@@ -618,14 +587,31 @@ begin
   end;
 end;
 
-function TProducerConsumerThreadPool.GetThreadCount: integer;
+function TProducerConsumerThreadPool.GetQueueCount: integer;
 begin
-  Result := FLocalThreadCount;
+  Result := FWorkQueue.GetCount;
 end;
 
-function TProducerConsumerThreadPool.GetLastError: string;
+function TProducerConsumerThreadPool.GetQueueCapacity: integer;
 begin
-  Result := inherited GetLastError;
+  Result := FWorkQueue.GetCapacity;
+end;
+
+function TProducerConsumerThreadPool.GetQueueLoadFactor: Double;
+begin
+  Result := FWorkQueue.GetLoadFactor;
+end;
+
+function TProducerConsumerThreadPool.GetBackpressureConfig:
+  TBackpressureConfig;
+begin
+  Result := FWorkQueue.GetBackpressureConfig;
+end;
+
+procedure TProducerConsumerThreadPool.SetBackpressureConfig(
+  const AValue: TBackpressureConfig);
+begin
+  FWorkQueue.SetBackpressureConfig(AValue);
 end;
 
 {$ENDREGION}
@@ -636,25 +622,7 @@ end;
 
 constructor TProducerConsumerWorkItem.Create(AThreadPool: TObject);
 begin
-  inherited Create;
-  FThreadPool := AThreadPool;
-  FItemType := witProcedure;
-  FIndex := 0;
-end;
-
-procedure TProducerConsumerWorkItem.Execute;
-begin
-  case FItemType of
-    witProcedure: if Assigned(FProcedure) then FProcedure;
-    witMethod: if Assigned(FMethod) then FMethod;
-    witProcedureIndex: if Assigned(FProcedureIndex) then FProcedureIndex(FIndex);
-    witMethodIndex: if Assigned(FMethodIndex) then FMethodIndex(FIndex);
-  end;
-end;
-
-function TProducerConsumerWorkItem.GetItemType: integer;
-begin
-  Result := Ord(FItemType);
+  inherited Create(TThreadProcedure(nil));
 end;
 
 {$ENDREGION}
@@ -698,13 +666,15 @@ end;
 
 function TThreadSafeQueue.GetDefaultTimeout: Cardinal;
 var
+  Config: TBackpressureConfig;
   Attempts: Integer;
   Total: QWord;
 begin
-  Attempts := FBackpressureConfig.MaxAttempts;
+  Config := GetBackpressureConfig;
+  Attempts := Config.MaxAttempts;
   if Attempts <= 1 then
     Exit(0);
-  Total := QWord(Attempts) * QWord(Max(0, FBackpressureConfig.HighLoadDelay)) +
+  Total := QWord(Attempts) * QWord(Max(0, Config.HighLoadDelay)) +
     QWord(Attempts - 1) * 10;
   if Total > High(Cardinal) - 1 then
     Result := High(Cardinal) - 1
@@ -750,6 +720,32 @@ begin
   FLock.Enter;
   try
     Result := FCount;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TThreadSafeQueue.GetCapacity: integer;
+begin
+  Result := FCapacity;
+end;
+
+function TThreadSafeQueue.GetBackpressureConfig: TBackpressureConfig;
+begin
+  FLock.Enter;
+  try
+    Result := FBackpressureConfig;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TThreadSafeQueue.SetBackpressureConfig(
+  const AValue: TBackpressureConfig);
+begin
+  FLock.Enter;
+  try
+    FBackpressureConfig := AValue;
   finally
     FLock.Leave;
   end;
@@ -861,7 +857,6 @@ begin
         FItems[FTail] := AItem;
         FTail := (FTail + 1) mod FCapacity;
         Inc(FCount);
-        FLastEnqueueTime := Now;
         FNotEmptyEvent.SetEvent;
         if FCount = FCapacity then
           FNotFullEvent.ResetEvent;

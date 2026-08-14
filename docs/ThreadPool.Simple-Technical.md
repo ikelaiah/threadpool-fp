@@ -73,9 +73,13 @@ Each worker thread:
 - Drains available FIFO work after an enqueue wakes it
 - Terminates cleanly when `Terminated` is set during pool destruction
 
-### TSimpleWorkItem
+### Callback work items
 
-A lightweight wrapper around one of the four task types:
+Both pools use the shared internal `TThreadPoolCallbackWorkItem` implementation.
+`TSimpleWorkItem` remains as a compatibility wrapper for code that named the
+old implementation type directly.
+
+The shared work item wraps one of four task types:
 
 | Type | Pascal type |
 | --- | --- |
@@ -84,8 +88,8 @@ A lightweight wrapper around one of the four task types:
 | Indexed procedure | `TThreadProcedureIndex` |
 | Indexed method | `TThreadMethodIndex` |
 
-On execution it calls the appropriate callable, then decrements the pool's pending
-counter (and signals completion if it reaches zero).
+On execution it calls the appropriate callback. The worker updates the pool's
+pending counter in a `finally` block, independently of callback failures.
 
 ---
 
