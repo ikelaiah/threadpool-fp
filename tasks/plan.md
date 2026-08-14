@@ -24,44 +24,44 @@ short beginner journey.
 
 ### Phase 1: Protect the queue boundary
 
-- [ ] Add failing tests for safe pool-level queue monitoring.
-- [ ] Add read-only queue count, capacity, and load-factor properties.
-- [ ] Deprecate direct `WorkQueue` access and document its mutation hazard.
+- [x] Add failing tests for safe pool-level queue monitoring.
+- [x] Add read-only queue count, capacity, and load-factor properties.
+- [x] Deprecate direct `WorkQueue` access and document its mutation hazard.
 
 ### Checkpoint: Queue boundary
 
-- [ ] Focused producer-consumer tests pass.
-- [ ] Package builds without errors.
+- [x] Focused producer-consumer tests pass.
+- [x] Package builds without errors.
 
 ### Phase 2: Reduce maintenance debt
 
-- [ ] Move duplicated callback work-item behavior into a shared internal unit.
-- [ ] Remove unused private fields, pass-through overrides, and no-op code where
+- [x] Move duplicated callback work-item behavior into a shared internal unit.
+- [x] Remove unused private fields, pass-through overrides, and no-op code where
       compatibility does not require them.
-- [ ] Remove the obsolete test suite from the repository and Lazarus project.
-- [ ] Replace the timing-based unit assertion with deterministic coverage or
+- [x] Remove the obsolete test suite from the repository and Lazarus project.
+- [x] Replace the timing-based unit assertion with deterministic coverage or
       leave throughput measurement solely in benchmarks.
 
 ### Checkpoint: Maintenance
 
-- [ ] Full active test suite passes.
-- [ ] Package and benchmark build.
+- [x] Full active test suite passes.
+- [x] Package and benchmark build.
 
 ### Phase 3: Improve onboarding and release documentation
 
-- [ ] Rewrite README as a concise value-first landing page.
-- [ ] Simplify the Starter example and update stale error guidance.
-- [ ] Add a curated examples index.
-- [ ] Correct documentation inconsistencies and broken relative links.
-- [ ] Archive the completed v0.9.0 development plan.
-- [ ] Add v0.9.1 release notes, PR notes, and changelog entry.
+- [x] Rewrite README as a concise value-first landing page.
+- [x] Simplify the Starter example and update stale error guidance.
+- [x] Add a curated examples index.
+- [x] Correct documentation inconsistencies and broken relative links.
+- [x] Archive the completed v0.9.0 development plan.
+- [x] Add v0.9.1 release notes, PR notes, and changelog entry.
 
 ### Checkpoint: Complete
 
-- [ ] Package, tests, benchmark, and all examples build.
-- [ ] Markdown relative links resolve.
-- [ ] Git diff passes whitespace checks.
-- [ ] Final multi-axis code review has no required findings.
+- [x] Package, tests, benchmark, and all examples build.
+- [x] Markdown relative links resolve.
+- [x] Git diff passes whitespace checks.
+- [x] Final multi-axis code review has no required findings.
 
 ## Risks and Mitigations
 
