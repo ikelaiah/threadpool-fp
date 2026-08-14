@@ -68,7 +68,9 @@ type
     function WaitForItem(ATimeoutMS: Cardinal): Boolean;
     procedure WakeAll;
     function GetCount: integer;
+    function GetCapacity: integer;
     procedure Clear;
+    property Capacity: integer read GetCapacity;
     property LoadFactor: Double read GetLoadFactor;
     property BackpressureConfig: TBackpressureConfig read FBackpressureConfig write FBackpressureConfig;
   end;
@@ -112,6 +114,9 @@ type
     function SubmitRangeWorkItem(const AWorkItem: IWorkItem): Boolean;
     procedure CompleteWorkItem;
     function IsCurrentWorkerThread: Boolean;
+    function GetQueueCount: integer;
+    function GetQueueCapacity: integer;
+    function GetQueueLoadFactor: Double;
   public
     constructor Create(AThreadCount: Integer = 0;
       AQueueSize: Integer = 1024); reintroduce;
@@ -155,7 +160,12 @@ type
     procedure WaitForAll; overload; override;
     function WaitForAll(ATimeoutMS: Cardinal): Boolean; overload; override;
     procedure Shutdown; override;
-    property WorkQueue: TThreadSafeQueue read FWorkQueue;  // Added this line
+    { Legacy compatibility access. New code should use the read-only queue
+      metrics below; mutating WorkQueue bypasses pool completion accounting. }
+    property WorkQueue: TThreadSafeQueue read FWorkQueue;
+    property QueueCount: integer read GetQueueCount;
+    property QueueCapacity: integer read GetQueueCapacity;
+    property QueueLoadFactor: Double read GetQueueLoadFactor;
     property ThreadCount: integer read GetThreadCount;
     property LastError: string read GetLastError;
   end;
@@ -628,6 +638,21 @@ begin
   Result := inherited GetLastError;
 end;
 
+function TProducerConsumerThreadPool.GetQueueCount: integer;
+begin
+  Result := FWorkQueue.GetCount;
+end;
+
+function TProducerConsumerThreadPool.GetQueueCapacity: integer;
+begin
+  Result := FWorkQueue.GetCapacity;
+end;
+
+function TProducerConsumerThreadPool.GetQueueLoadFactor: Double;
+begin
+  Result := FWorkQueue.GetLoadFactor;
+end;
+
 {$ENDREGION}
 
 {$REGION 'TProducerConsumerWorkItem'}
@@ -753,6 +778,11 @@ begin
   finally
     FLock.Leave;
   end;
+end;
+
+function TThreadSafeQueue.GetCapacity: integer;
+begin
+  Result := FCapacity;
 end;
 
 procedure TThreadSafeQueue.Clear;

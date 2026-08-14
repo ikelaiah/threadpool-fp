@@ -69,6 +69,7 @@ type
     procedure Test23_ConcurrentQueueAndShutdown;
     procedure Test24_InvalidQueueSizeRejected;
     procedure Test25_WorkerShutdownCannotDeadlock;
+    procedure Test26_PoolExposesReadOnlyQueueMetrics;
   end;
 
   TProducerLifecycleQueueThread = class(TThread)
@@ -819,6 +820,35 @@ begin
     Ord(tpsAccepting), Ord(FThreadPool.State));
   AssertTrue('Rejected worker shutdown should be captured as a task error',
     Pos('cannot be called from a pool worker', FThreadPool.LastError) > 0);
+end;
+
+procedure TTestProducerConsumerThreadPool.Test26_PoolExposesReadOnlyQueueMetrics;
+var
+  Pool: TProducerConsumerThreadPool;
+  I: Integer;
+begin
+  FGateEvent.ResetEvent;
+  FAllStartedEvent.ResetEvent;
+  FStartedCount := 0;
+  Pool := TProducerConsumerThreadPool.Create(4, 1);
+  try
+    for I := 1 to 4 do
+      Pool.Queue(@GateTask);
+    AssertEquals('All workers should be occupied', Ord(wrSignaled),
+      Ord(FAllStartedEvent.WaitFor(2000)));
+
+    Pool.Queue(@GateTask);
+    AssertEquals('Configured capacity should be available from the pool',
+      1, Pool.QueueCapacity);
+    AssertEquals('Pending queue count should be available from the pool',
+      1, Pool.QueueCount);
+    AssertEquals('A full queue should report a load factor of one',
+      1.0, Pool.QueueLoadFactor);
+  finally
+    FGateEvent.SetEvent;
+    Pool.WaitForAll;
+    Pool.Free;
+  end;
 end;
 
 initialization
