@@ -9,7 +9,7 @@ interface
 
 uses
   ThreadPool.Simple, ThreadPool.Types, ThreadPool.Tasks,
-  ThreadPool.ProducerConsumer;
+  ThreadPool.ProducerConsumer, ThreadPool.Internal.WorkItems;
 
 implementation
 

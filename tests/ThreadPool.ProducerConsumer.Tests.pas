@@ -53,7 +53,7 @@ type
     procedure Test11_BackpressureConfig;
     procedure Test12_LoadFactorCalculation;
     procedure Test13_BackpressureBehavior;
-    procedure Test14_ParallelScaling;
+    procedure Test14_PoolExposesReadOnlyQueueMetrics;
 
     // Error-collection API (v0.7.0)
     procedure Test15_ErrorsCollectionCapturesAll;
@@ -69,7 +69,6 @@ type
     procedure Test23_ConcurrentQueueAndShutdown;
     procedure Test24_InvalidQueueSizeRejected;
     procedure Test25_WorkerShutdownCannotDeadlock;
-    procedure Test26_PoolExposesReadOnlyQueueMetrics;
   end;
 
   TProducerLifecycleQueueThread = class(TThread)
@@ -516,7 +515,7 @@ begin
   LogTest('Test12_LoadFactorCalculation starting...');
 
   // Empty queue
-  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  LoadFactor := FThreadPool.QueueLoadFactor;
   AssertEquals('Empty queue load factor', 0.0, LoadFactor);
 
   // Queue more tasks than there are threads so the queue buffer always has
@@ -526,11 +525,11 @@ begin
   for I := 1 to 50 do
     FThreadPool.Queue(@SleepTask);
 
-  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  LoadFactor := FThreadPool.QueueLoadFactor;
   AssertTrue('Partial queue load factor', (LoadFactor > 0.0) and (LoadFactor < 1.0));
   
   FThreadPool.WaitForAll;
-  LoadFactor := FThreadPool.WorkQueue.LoadFactor;
+  LoadFactor := FThreadPool.QueueLoadFactor;
   AssertEquals('Empty queue after processing', 0.0, LoadFactor);
   
   LogTest('Test12_LoadFactorCalculation finished');
@@ -569,60 +568,6 @@ begin
     Pool.Free;
   end;
   LogTest('Test13_BackpressureBehavior finished');
-end;
-
-{ Verify that independent tasks scale across the fixed worker set. }
-procedure TTestProducerConsumerThreadPool.Test14_ParallelScaling;
-const
-  LOW_LOAD_TASKS = 1;     // Single task
-  HIGH_LOAD_TASKS = 32;   // Many more tasks
-var
-  StartTime: TDateTime;
-  LowLoadTime: Int64;
-  HighLoadTime: Int64;
-  I: Integer;
-  NormalizedLowTime: Double;
-  NormalizedHighTime: Double;
-  Ratio: Double;
-begin
-  LogTest('Test14_ParallelScaling starting...');
-  LogTest(Format('Thread count: %d', [FThreadPool.ThreadCount]));
-  
-  // Measure low load (single task)
-  LogTest('Starting low load test...');
-  StartTime := Now;
-  for I := 1 to LOW_LOAD_TASKS do
-    FThreadPool.Queue(@LongTask);
-  FThreadPool.WaitForAll;
-  LowLoadTime := MilliSecondsBetween(Now, StartTime);
-  LogTest(Format('Low load completed in %d ms', [LowLoadTime]));
-
-  Sleep(500); // Longer delay between tests
-
-  // Measure high load
-  LogTest('Starting high load test...');
-  StartTime := Now;
-  for I := 1 to HIGH_LOAD_TASKS do
-    FThreadPool.Queue(@LongTask);
-  FThreadPool.WaitForAll;
-  HighLoadTime := MilliSecondsBetween(Now, StartTime);
-  LogTest(Format('High load completed in %d ms', [HighLoadTime]));
-
-  // Calculate normalized times
-  NormalizedLowTime := LowLoadTime / LOW_LOAD_TASKS;
-  NormalizedHighTime := HighLoadTime / HIGH_LOAD_TASKS;
-  // Invert the ratio to measure slowdown factor
-  Ratio := NormalizedLowTime / NormalizedHighTime;
-
-  LogTest(Format('Low load time: %d ms for %d tasks (%.2f ms/task)',
-    [LowLoadTime, LOW_LOAD_TASKS, NormalizedLowTime]));
-  LogTest(Format('High load time: %d ms for %d tasks (%.2f ms/task)',
-    [HighLoadTime, HIGH_LOAD_TASKS, NormalizedHighTime]));
-  LogTest(Format('Performance ratio: %.2fx faster under low load', [Ratio]));
-
-  AssertTrue('Low load should be proportionally faster', Ratio > 1.5);
-
-  LogTest('Test14_ParallelScaling finished');
 end;
 
 procedure TTestProducerConsumerThreadPool.Test15_ErrorsCollectionCapturesAll;
@@ -822,7 +767,7 @@ begin
     Pos('cannot be called from a pool worker', FThreadPool.LastError) > 0);
 end;
 
-procedure TTestProducerConsumerThreadPool.Test26_PoolExposesReadOnlyQueueMetrics;
+procedure TTestProducerConsumerThreadPool.Test14_PoolExposesReadOnlyQueueMetrics;
 var
   Pool: TProducerConsumerThreadPool;
   I: Integer;

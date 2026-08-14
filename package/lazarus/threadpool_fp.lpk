@@ -65,6 +65,10 @@ SOFTWARE. "/>
         <Filename Value="..\..\src\ThreadPool.ProducerConsumer.pas"/>
         <UnitName Value="ThreadPool.ProducerConsumer"/>
       </Item>
+      <Item>
+        <Filename Value="..\..\src\ThreadPool.Internal.WorkItems.pas"/>
+        <UnitName Value="ThreadPool.Internal.WorkItems"/>
+      </Item>
     </Files>
     <RequiredPkgs>
       <Item>
