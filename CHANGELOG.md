@@ -107,7 +107,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - New project identity with an editable SVG banner source and a synchronized
   1800×600 PNG used by GitHub-facing documentation
-- [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md), a compact reference for pool
+- [`docs/getting-started/cheat-sheet.md`](docs/getting-started/cheat-sheet.md), a compact reference for pool
   selection, queue overloads, timeouts, shutdown, errors, and object lifetime
 - Focused v0.8.5 release notes
 

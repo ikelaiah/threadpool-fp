@@ -1,0 +1,130 @@
+{
+  "schema_version": 2,
+  "release": "0.9.1",
+  "site_title": "ThreadPool-FP documentation",
+  "description": "Practical ThreadPool-FP documentation for parallel work with Free Pascal and Lazarus.",
+  "required_pages": [
+    "index.md",
+    "getting-started/installation.md",
+    "getting-started/beginner-guide.md",
+    "getting-started/choosing-a-pool.md",
+    "getting-started/cheat-sheet.md",
+    "guides/callback-forms.md",
+    "guides/simple-thread-pool.md",
+    "guides/tasks-and-batches.md",
+    "guides/ranges.md",
+    "guides/cancellation.md",
+    "guides/error-handling.md",
+    "guides/producer-consumer.md",
+    "guides/backpressure.md",
+    "guides/lifecycle-and-shutdown.md",
+    "guides/thread-safety.md",
+    "guides/runtime-requirements.md",
+    "guides/recipes.md",
+    "reference/simple-api.md",
+    "reference/tasks-api.md",
+    "reference/producer-consumer-api.md",
+    "reference/types-and-interfaces.md",
+    "reference/contracts-and-limitations.md",
+    "internals/simple-internals.md",
+    "internals/producer-consumer-internals.md",
+    "internals/interface-reference-counting.md",
+    "history/release-notes-v0.5.0.md",
+    "history/release-notes-v0.6.0.md",
+    "history/release-notes-v0.6.5.md",
+    "history/release-notes-v0.7.0.md",
+    "history/release-notes-v0.8.0.md",
+    "history/release-notes-v0.8.5.md",
+    "history/release-notes-v0.9.0.md",
+    "history/release-notes-v0.9.1.md",
+    "history/pr-notes-v0.9.1.md",
+    "history/v0.9.0-plan.md",
+    "history/decisions/0001-preserve-v09-compatibility-boundary.md"
+  ],
+  "navigation": [
+    {
+      "title": "Getting Started",
+      "pages": [
+        { "path": "index.md", "title": "Introduction" },
+        { "path": "getting-started/installation.md", "title": "Installation & Quick Start" },
+        { "path": "getting-started/beginner-guide.md", "title": "Beginner Guide" },
+        { "path": "getting-started/choosing-a-pool.md", "title": "Choose a Pool" },
+        { "path": "getting-started/cheat-sheet.md", "title": "Cheat Sheet" }
+      ]
+    },
+    {
+      "title": "Guides",
+      "pages": [
+        { "path": "guides/callback-forms.md", "title": "Callback Forms" },
+        { "path": "guides/simple-thread-pool.md", "title": "Simple Thread Pool" },
+        { "path": "guides/tasks-and-batches.md", "title": "Tasks & Batches" },
+        { "path": "guides/ranges.md", "title": "Parallel Ranges" },
+        { "path": "guides/cancellation.md", "title": "Cancellation" },
+        { "path": "guides/error-handling.md", "title": "Error Handling" },
+        { "path": "guides/producer-consumer.md", "title": "Producer-Consumer Queue" },
+        { "path": "guides/backpressure.md", "title": "Backpressure" },
+        { "path": "guides/lifecycle-and-shutdown.md", "title": "Lifecycle & Shutdown" },
+        { "path": "guides/thread-safety.md", "title": "Thread Safety" },
+        { "path": "guides/runtime-requirements.md", "title": "Platform Requirements" },
+        { "path": "guides/recipes.md", "title": "Common Recipes" }
+      ]
+    },
+    {
+      "title": "Reference",
+      "pages": [
+        { "path": "reference/simple-api.md", "title": "Simple API" },
+        { "path": "reference/tasks-api.md", "title": "Tasks API" },
+        { "path": "reference/producer-consumer-api.md", "title": "Producer-Consumer API" },
+        { "path": "reference/types-and-interfaces.md", "title": "Types & Interfaces" },
+        { "path": "reference/contracts-and-limitations.md", "title": "Contracts & Limitations" }
+      ]
+    },
+    {
+      "title": "Internals",
+      "pages": [
+        { "path": "internals/simple-internals.md", "title": "Simple Pool Internals" },
+        { "path": "internals/producer-consumer-internals.md", "title": "Producer-Consumer Internals" },
+        { "path": "internals/interface-reference-counting.md", "title": "Reference Counting in FPC" }
+      ]
+    }
+  ],
+  "hidden_pages": [
+    "history/release-notes-v0.5.0.md",
+    "history/release-notes-v0.6.0.md",
+    "history/release-notes-v0.6.5.md",
+    "history/release-notes-v0.7.0.md",
+    "history/release-notes-v0.8.0.md",
+    "history/release-notes-v0.8.5.md",
+    "history/release-notes-v0.9.0.md",
+    "history/release-notes-v0.9.1.md",
+    "history/pr-notes-v0.9.1.md",
+    "history/v0.9.0-plan.md",
+    "history/decisions/0001-preserve-v09-compatibility-boundary.md"
+  ],
+  "project": [
+    { "title": "GitHub repository", "url": "https://github.com/ikelaiah/threadpool-fp" },
+    { "title": "Changelog", "project_path": "CHANGELOG.md" },
+    { "title": "Contributing", "project_path": "CONTRIBUTING.md" }
+  ],
+  "homepage": {
+    "tagline": "Run ordinary Pascal procedures concurrently on a managed set of worker threads, without managing threads yourself.",
+    "banner": {
+      "project_path": "docs/assets/threadpool-banner.svg",
+      "alt": "ThreadPool for Free Pascal banner: an ordered task queue splits across four parallel worker lanes and rejoins"
+    },
+    "actions": [
+      { "label": "Get Started", "path": "getting-started/installation.md" },
+      { "label": "Choose a Pool", "path": "getting-started/choosing-a-pool.md" },
+      { "label": "Common Recipes", "path": "guides/recipes.md" },
+      { "label": "API Reference", "path": "reference/simple-api.md" }
+    ],
+    "cards": [
+      { "eyebrow": "Start Here", "title": "Installation & Quick Start", "description": "Install ThreadPool-FP and run your first parallel program.", "path": "getting-started/installation.md" },
+      { "eyebrow": "Choose a Pool", "title": "Simple vs Producer-Consumer", "description": "Pick the pool that matches your queue-size and backpressure needs.", "path": "getting-started/choosing-a-pool.md" },
+      { "eyebrow": "Tasks", "title": "Tasks, Batches & Ranges", "description": "Wait for work, coordinate groups, and process ranges efficiently.", "path": "guides/tasks-and-batches.md" },
+      { "eyebrow": "Backpressure", "title": "Bounded Queues", "description": "Control memory and submission deadlines with a bounded queue.", "path": "guides/backpressure.md" },
+      { "eyebrow": "Recipes", "title": "Common Tasks", "description": "Copy tested, compiled Pascal programs for real workloads.", "path": "guides/recipes.md" },
+      { "eyebrow": "API Reference", "title": "Public API", "description": "Browse the Simple, Tasks, and Producer-Consumer declarations.", "path": "reference/simple-api.md" }
+    ]
+  }
+}

@@ -45,3 +45,6 @@ sh ./build-examples.sh
 Executables are written to the ignored root-level `example-bin/` directory.
 Pass `Default` to select the default build mode, or use `-Rebuild` in
 PowerShell / `--rebuild` in the shell script to force a complete rebuild.
+
+For guides, recipes, and the full API reference, see the
+[online documentation](https://ikelaiah.github.io/threadpool-fp/).

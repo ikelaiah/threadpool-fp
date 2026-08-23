@@ -52,6 +52,16 @@ jobs:
             ./benchmarks/ThreadPoolBenchmark
           fi
 
+      - name: Compile and run documentation examples (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 tools/test_docs_examples.py
+
+      - name: Compile and run documentation examples (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python tools/test_docs_examples.py
+
   build-examples:
     name: Build examples (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -72,3 +82,28 @@ jobs:
       - name: Build all examples
         shell: bash
         run: sh ./build-examples.sh Release
+
+  documentation:
+    name: Documentation checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test documentation tooling
+        shell: bash
+        run: |
+          python3 tools/test_build_docs.py
+          python3 tools/test_build_all_docs.py
+          python3 tools/test_check_built_docs.py
+          python3 tools/test_check_docs.py
+          python3 tools/check_docs.py
+
+      - name: Build and validate documentation site
+        shell: bash
+        run: |
+          python3 tools/build_all_docs.py --site-root site --offline-dir artifacts
+          python3 tools/check_built_docs.py --site site

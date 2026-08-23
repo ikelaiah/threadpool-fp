@@ -45,6 +45,11 @@ tests/lib/
 # lazbuild-generated local package-link cache
 packagefiles.xml
 
+# Generated documentation output (docs-as-code build)
+/site/
+/artifacts/
+/build/
+
 # OS specific files
 ## Windows
 Thumbs.db
@@ -62,3 +67,7 @@ $RECYCLE.BIN/
 *~
 .directory
 .Trash-*
+
+# Python bytecode cache
+__pycache__/
+*.pyc
