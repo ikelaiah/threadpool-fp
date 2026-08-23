@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "current": "0.9.1",
+  "site_url": "https://ikelaiah.github.io/threadpool-fp",
+  "repository_url": "https://github.com/ikelaiah/threadpool-fp",
+  "versions": [
+    {
+      "release": "0.9.1",
+      "source_ref": "main"
+    }
+  ]
+}

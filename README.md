@@ -4,6 +4,7 @@
 
 # 🧵ThreadPool for Free Pascal
 
+[![Documentation](https://img.shields.io/badge/docs-ikelaiah.github.io%2Fthreadpool--fp-8B5CF6.svg)](https://ikelaiah.github.io/threadpool-fp/)
 [![Version](https://img.shields.io/badge/version-0.9.1-8B5CF6.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-1E3A8A.svg)](LICENSE.md)
 [![Free Pascal](https://img.shields.io/badge/Free%20Pascal-3.2.2+-3B82F6.svg)](https://www.freepascal.org/)
@@ -26,9 +27,13 @@ Use it to:
 
 Most applications should start with `ThreadPool.Simple`.
 
+Full documentation lives at
+[**ikelaiah.github.io/threadpool-fp**](https://ikelaiah.github.io/threadpool-fp/).
+Quick navigation:
+
 [Quick start](#quick-start) · [Examples](examples/) ·
-[Cheat sheet](docs/CHEATSHEET.md) · [API reference](#documentation) ·
-[v0.9.1 release notes](docs/release-notes-v0.9.1.md)
+[Cheat sheet](docs/getting-started/cheat-sheet.md) · [API reference](#documentation) ·
+[v0.9.1 release notes](docs/history/release-notes-v0.9.1.md)
 
 <a id="quick-start"></a>
 
@@ -148,8 +153,8 @@ the processor count before that minimum is applied.
 - Callbacks have no automatic execution deadline. Add application-level
   cancellation or timeouts to operations that may block.
 
-The [cheat sheet](docs/CHEATSHEET.md) covers callback forms, timeout values,
-error handling, cancellation, and lifecycle rules on one page.
+The [cheat sheet](docs/getting-started/cheat-sheet.md) covers callback forms,
+timeout values, error handling, cancellation, and lifecycle rules on one page.
 
 ## 🧪 Examples
 
@@ -181,14 +186,20 @@ Executables are written to the ignored `example-bin/` directory.
 
 ## 📚 Documentation
 
+The full documentation site,
+[**ikelaiah.github.io/threadpool-fp**](https://ikelaiah.github.io/threadpool-fp/),
+adds guides, recipes, a cheat sheet, versioned pages, and search. The Markdown
+below is the same source the site is built from.
+
 | Document | Use it for |
 | --- | --- |
-| [Cheat sheet](docs/CHEATSHEET.md) | Calls and safety rules at a glance |
-| [Simple API](docs/ThreadPool.Simple-API.md) | Complete unbounded-pool contract |
-| [Producer-Consumer API](docs/ThreadPool.ProducerConsumer-API.md) | Bounded queues and backpressure |
-| [Tasks API](docs/ThreadPool.Tasks-API.md) | Task handles, batches, ranges, and cancellation |
-| [Simple internals](docs/ThreadPool.Simple-Technical.md) | Unbounded-pool implementation |
-| [Producer-Consumer internals](docs/ThreadPool.ProducerConsumer-Technical.md) | Bounded-queue implementation |
+| [Online documentation](https://ikelaiah.github.io/threadpool-fp/) | Guides, recipes, reference, search |
+| [Cheat sheet](docs/getting-started/cheat-sheet.md) | Calls and safety rules at a glance |
+| [Simple API](docs/reference/simple-api.md) | Complete unbounded-pool contract |
+| [Producer-Consumer API](docs/reference/producer-consumer-api.md) | Bounded queues and backpressure |
+| [Tasks API](docs/reference/tasks-api.md) | Task handles, batches, ranges, and cancellation |
+| [Simple internals](docs/internals/simple-internals.md) | Unbounded-pool implementation |
+| [Producer-Consumer internals](docs/internals/producer-consumer-internals.md) | Bounded-queue implementation |
 | [Changelog](CHANGELOG.md) | Version history |
 
 ## 🛠️ Build and test

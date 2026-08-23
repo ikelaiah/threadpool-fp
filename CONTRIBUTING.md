@@ -46,6 +46,29 @@ only a few seconds, although timing varies by machine.
 CI runs the package build, the test suite, and all examples on Linux and
 Windows for every pull request — please make sure your branch is green.
 
+## Documentation changes
+
+The online documentation at
+[ikelaiah.github.io/threadpool-fp](https://ikelaiah.github.io/threadpool-fp/)
+is built from the Markdown in `docs/`. When you change documentation:
+
+- Keep every `.md` file under `docs/` listed in `docs/layout.json`, either as a
+  navigation page or a hidden page.
+- After moving or adding pages, update cross-links; the build fails on broken
+  internal links.
+- For new recipe programs under `examples/documentation/`, create a matching
+  `.output` file and keep the code block in `docs/guides/recipes.md`
+  byte-identical to the source program.
+- See `tools/DOCUMENTATION.md` for the full workflow and verify locally with:
+
+  ```bash
+  python tools/test_build_docs.py
+  python tools/test_check_docs.py
+  python tools/check_docs.py
+  python tools/build_all_docs.py --site-root site
+  python tools/check_built_docs.py --site site
+  ```
+
 ## Code style
 
 - Use `{$mode objfpc}{$H+}{$J-}` at the top of new units and programs.
